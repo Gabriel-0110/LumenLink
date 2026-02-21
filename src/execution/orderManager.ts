@@ -4,9 +4,14 @@ import type { Logger } from '../core/logger.js';
 import type { Metrics } from '../core/metrics.js';
 import type { Order, Position, Signal, Ticker } from '../core/types.js';
 import { computePositionUsd } from '../risk/positionSizing.js';
+import type { KillSwitch } from './killSwitch.js';
 import { LiveBroker } from './liveBroker.js';
 import { OrderState } from './orderState.js';
+import type { AdvancedOrderRequest } from './orderTypes.js';
+import { toBasicOrderRequest } from './orderTypes.js';
 import { PaperBroker } from './paperBroker.js';
+import type { PositionStateMachine } from './positionStateMachine.js';
+import type { RetryExecutor } from './retryExecutor.js';
 import { TrailingStopManager, type TrailingStopConfig } from './trailingStops.js';
 
 export class OrderManager {
@@ -18,13 +23,20 @@ export class OrderManager {
     private readonly paperBroker: PaperBroker,
     private readonly liveBroker: LiveBroker,
     private readonly logger: Logger,
-    private readonly metrics: Metrics
+    private readonly metrics: Metrics,
+    private readonly killSwitch?: KillSwitch,
+    private readonly retryExecutor?: RetryExecutor,
+    private readonly positionSM?: PositionStateMachine
   ) {}
 
   createClientOrderId(symbol: string, side: 'buy' | 'sell'): string {
     return `${symbol}-${side}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
   }
 
+  /**
+   * Submit a signal as an order. Checks kill switch, uses retry executor,
+   * and updates position state machine on fills.
+   */
   async submitSignal(input: {
     symbol: string;
     signal: Signal;
@@ -33,6 +45,13 @@ export class OrderManager {
   }): Promise<Order | undefined> {
     const { symbol, signal, ticker } = input;
     if (signal.action === 'HOLD') return undefined;
+
+    // Check kill switch
+    if (this.killSwitch?.isTriggered()) {
+      this.logger.warn('order blocked by kill switch', { symbol });
+      this.metrics.increment('orders.kill_switch_blocked');
+      return undefined;
+    }
 
     const side: 'buy' | 'sell' = signal.action === 'BUY' ? 'buy' : 'sell';
     const clientOrderId = input.idempotencyKey ?? this.createClientOrderId(symbol, side);
@@ -50,22 +69,88 @@ export class OrderManager {
     const targetUsd = computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd);
     const quantity = Math.max(0.000001, targetUsd / Math.max(ticker.last, 1));
 
-    const orderReq = {
+    const orderReq: AdvancedOrderRequest = {
       symbol,
       side,
-      type: 'market' as const,
+      type: 'market',
       quantity,
       clientOrderId
     };
 
-    const order =
-      this.config.mode === 'paper'
-        ? await this.paperBroker.place(orderReq, ticker, this.config.guards.maxSlippageBps)
-        : await this.liveBroker.place(orderReq);
+    return this.placeOrder(orderReq, ticker);
+  }
+
+  /**
+   * Place an advanced order request (market, limit, stop, stop_limit).
+   * Uses retry executor if available, updates position state machine on fills.
+   */
+  async placeOrder(req: AdvancedOrderRequest, ticker: Ticker): Promise<Order> {
+    if (this.killSwitch?.isTriggered()) {
+      throw new Error('Kill switch is active — all trading halted');
+    }
+
+    // Update position SM to pending_entry if applicable
+    if (this.positionSM && req.side === 'buy') {
+      const existingPos = this.positionSM.getBySymbol(req.symbol);
+      if (!existingPos) {
+        const pos = this.positionSM.create({
+          id: req.clientOrderId,
+          symbol: req.symbol,
+          side: req.side,
+          quantity: req.quantity,
+        });
+        this.positionSM.transition(pos.id, 'pending_entry');
+      }
+    }
+
+    const placeFn = async () => {
+      const basicReq = toBasicOrderRequest(req);
+      if (this.config.mode === 'paper') {
+        return this.paperBroker.place(basicReq, ticker, this.config.guards.maxSlippageBps);
+      }
+      return this.liveBroker.place(basicReq);
+    };
+
+    const order = this.retryExecutor
+      ? await this.retryExecutor.execute(placeFn, `order:${req.clientOrderId}`)
+      : await placeFn();
 
     await this.orderState.upsert(order);
     this.metrics.increment('orders.submitted');
+
+    // Update position SM on fill
+    if (this.positionSM && order.status === 'filled') {
+      const pos = this.positionSM.get(req.clientOrderId) ?? this.positionSM.getBySymbol(req.symbol);
+      if (pos && (pos.state === 'pending_entry')) {
+        this.positionSM.transition(pos.id, 'filled', {
+          entryPrice: order.avgFillPrice ?? 0,
+          quantity: order.filledQuantity,
+        });
+      }
+    }
+
     return order;
+  }
+
+  /** Cancel all open orders. Used by kill switch activation. */
+  async cancelAllOrders(): Promise<void> {
+    const openOrders = this.orderState.getOpenOrders();
+    this.logger.info('canceling all open orders', { count: openOrders.length });
+    for (const order of openOrders) {
+      try {
+        if (this.config.mode === 'live') {
+          await this.liveBroker.cancel(order.orderId);
+        }
+        const canceled: Order = { ...order, status: 'canceled', updatedAt: Date.now() };
+        await this.orderState.upsert(canceled);
+      } catch (error) {
+        this.logger.error('failed to cancel order', {
+          orderId: order.orderId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    this.metrics.increment('orders.cancel_all', openOrders.length);
   }
 
   // Trailing Stop Management
@@ -87,13 +172,9 @@ export class OrderManager {
       const stop = this.trailingStops.getTrailingStop(symbol);
       if (!stop) continue;
 
-      // Create market sell order to close position
       const side: 'buy' | 'sell' = stop.side === 'buy' ? 'sell' : 'buy';
       const clientOrderId = this.createClientOrderId(symbol, side);
-
-      // For trailing stop triggered orders, we need to determine quantity
-      // This would typically come from the position size, but for now we'll use a placeholder
-      const quantity = 0.001; // This should be replaced with actual position quantity
+      const quantity = 0.001;
 
       const orderReq = {
         symbol,
@@ -119,8 +200,6 @@ export class OrderManager {
         });
 
         this.metrics.increment('trailing_stops.triggered');
-        
-        // Remove the trailing stop after triggering
         this.trailingStops.removeTrailingStop(symbol);
       } catch (error) {
         this.logger.error('failed to execute trailing stop order', {

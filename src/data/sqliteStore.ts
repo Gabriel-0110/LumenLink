@@ -23,6 +23,7 @@ export class SqliteStore implements CandleStore {
         low REAL NOT NULL,
         close REAL NOT NULL,
         volume REAL NOT NULL,
+        date_str TEXT,
         UNIQUE(symbol, interval, time)
       );
 
@@ -49,14 +50,15 @@ export class SqliteStore implements CandleStore {
 
   async saveCandles(candles: Candle[]): Promise<void> {
     const stmt = this.db.prepare(`
-      INSERT INTO candles(symbol, interval, time, open, high, low, close, volume)
-      VALUES(@symbol, @interval, @time, @open, @high, @low, @close, @volume)
+      INSERT INTO candles(symbol, interval, time, open, high, low, close, volume, date_str)
+      VALUES(@symbol, @interval, @time, @open, @high, @low, @close, @volume, datetime(@time/1000, 'unixepoch'))
       ON CONFLICT(symbol, interval, time) DO UPDATE SET
         open=excluded.open,
         high=excluded.high,
         low=excluded.low,
         close=excluded.close,
-        volume=excluded.volume
+        volume=excluded.volume,
+        date_str=excluded.date_str
     `);
 
     const insertMany = this.db.transaction((rows: Candle[]) => {

@@ -75,6 +75,17 @@ const rawSchema = z.object({
   SECRET_ID_OPENAI_KEY: z.string().default('prod/ai/openai/key'),
   SECRET_ID_ETHERSCAN_KEY: z.string().default('prod/data/etherscan/key'),
   
+  // Kill switch thresholds
+  KILL_SWITCH_MAX_DRAWDOWN_PCT: z.string().optional(),
+  KILL_SWITCH_MAX_CONSECUTIVE_LOSSES: z.string().optional(),
+  KILL_SWITCH_API_ERROR_THRESHOLD: z.string().optional(),
+  KILL_SWITCH_SPREAD_VIOLATIONS_LIMIT: z.string().optional(),
+  KILL_SWITCH_SPREAD_VIOLATIONS_WINDOW_MIN: z.string().optional(),
+
+  // Retry config
+  RETRY_MAX_ATTEMPTS: z.string().optional(),
+  RETRY_BASE_DELAY_MS: z.string().optional(),
+
   // Alert secrets
   SECRET_ID_TELEGRAM_TOKEN: z.string().default('prod/alerts/telegram/token'),
   SECRET_ID_DISCORD_WEBHOOK: z.string().default('prod/alerts/discord/webhook')
@@ -139,6 +150,19 @@ export const configSchema = rawSchema.transform((raw) => {
       discord: {
         enabled: parseBoolean(raw.ALERT_DISCORD_ENABLED, false)
       }
+    },
+
+    killSwitchConfig: {
+      maxDrawdownPct: parseNumber(raw.KILL_SWITCH_MAX_DRAWDOWN_PCT, 5),
+      maxConsecutiveLosses: parseNumber(raw.KILL_SWITCH_MAX_CONSECUTIVE_LOSSES, 5),
+      apiErrorThreshold: parseNumber(raw.KILL_SWITCH_API_ERROR_THRESHOLD, 10),
+      spreadViolationsLimit: parseNumber(raw.KILL_SWITCH_SPREAD_VIOLATIONS_LIMIT, 5),
+      spreadViolationsWindowMin: parseNumber(raw.KILL_SWITCH_SPREAD_VIOLATIONS_WINDOW_MIN, 10),
+    },
+
+    retry: {
+      maxAttempts: parseNumber(raw.RETRY_MAX_ATTEMPTS, 3),
+      baseDelayMs: parseNumber(raw.RETRY_BASE_DELAY_MS, 1000),
     },
 
     secrets: {

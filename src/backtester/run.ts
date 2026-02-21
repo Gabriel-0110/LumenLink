@@ -9,7 +9,6 @@ import { loadConfig } from '../config/load.js';
 import { CCXTAdapter } from '../exchanges/ccxt/adapter.js';
 import { createStrategy } from '../strategies/selector.js';
 import type { Strategy } from '../strategies/interface.js';
-import type { Candle } from '../core/types.js';
 import { JsonLogger } from '../core/logger.js';
 
 interface BacktestTrade {
@@ -167,10 +166,10 @@ async function main(): Promise<void> {
   const logger = new JsonLogger(config.logLevel);
 
   try {
-    // Create exchange adapter (no auth needed for public data)
+    // Create exchange adapter — Coinbase public endpoints (no auth needed for OHLCV)
     const exchange = new CCXTAdapter({
-      exchange: config.exchange,
-      sandbox: true, // Use sandbox for backtesting
+      exchange: 'coinbaseexchange',
+      sandbox: false,
     });
 
     // Create strategy
@@ -178,8 +177,15 @@ async function main(): Promise<void> {
 
     const backtester = new Backtester(strategy, exchange);
 
+    // Map symbols to Coinbase Pro format for backtest data
+    const symbolMap: Record<string, string> = {
+      'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD',
+      'BTC/USDT': 'BTC/USD', 'ETH/USDT': 'ETH/USD',
+    };
+    const backtestSymbols = config.symbols.map(s => symbolMap[s] ?? s);
+
     // Run backtest for each symbol
-    for (const symbol of config.symbols) {
+    for (const symbol of backtestSymbols) {
       try {
         const result = await backtester.backtest(symbol, config.interval, 1000);
         backtester.printResults(result);

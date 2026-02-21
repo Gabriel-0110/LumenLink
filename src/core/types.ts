@@ -1,5 +1,19 @@
 export type Side = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
+export type AdvancedOrderType = 'market' | 'limit' | 'stop' | 'stop_limit';
+export type TimeInForce = 'GTC' | 'IOC' | 'FOK';
+
+/** Position lifecycle states */
+export type PositionState = 'flat' | 'pending_entry' | 'filled' | 'managing' | 'pending_exit' | 'exited';
+
+/** Kill switch persisted state */
+export interface KillSwitchState {
+  triggered: boolean;
+  reason: string | null;
+  triggeredAt: number | null;
+  consecutiveLosses: number;
+  spreadViolations: { timestamp: number }[];
+}
 export type SignalAction = 'BUY' | 'SELL' | 'HOLD';
 
 export interface Candle {

@@ -1,0 +1,17 @@
+{
+  "name": "lumenlink-livebot",
+  "version": "1.0.0",
+  "description": "Telegram trading bot using Coinbase CDP SDK",
+  "main": "index.js",
+  "scripts": {
+    "start": "node -r dotenv/config index.js",
+    "dev": "node -r dotenv/config --watch index.js"
+  },
+  "dependencies": {
+    "@coinbase/coinbase-sdk": "^0.13.0",
+    "decimal.js": "^10.4.3",
+    "dotenv": "^16.4.7",
+    "grammy": "^1.31.0",
+    "web3": "^4.16.0"
+  }
+}

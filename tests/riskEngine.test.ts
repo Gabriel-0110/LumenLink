@@ -34,6 +34,8 @@ const baseConfig: AppConfig = {
     telegram: { enabled: false, chatId: undefined },
     discord: { enabled: false }
   },
+  killSwitchConfig: { maxDrawdownPct: 5, maxConsecutiveLosses: 5, apiErrorThreshold: 10, spreadViolationsLimit: 5, spreadViolationsWindowMin: 10 },
+  retry: { maxAttempts: 3, baseDelayMs: 1000 },
   secrets: {
     useAwsSecretsManager: false,
     awsRegion: 'us-east-1',

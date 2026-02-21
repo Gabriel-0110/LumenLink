@@ -7,4 +7,9 @@ export class LiveBroker {
   async place(orderRequest: OrderRequest): Promise<Order> {
     return this.exchange.placeOrder(orderRequest);
   }
+
+  /** Cancel an order by exchange order ID. */
+  async cancel(orderId: string): Promise<void> {
+    return this.exchange.cancelOrder(orderId);
+  }
 }

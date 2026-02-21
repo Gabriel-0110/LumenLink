@@ -1,5 +1,5 @@
 import { customActionProvider, WalletProvider } from "@coinbase/agentkit";
-import { LumenlinkActionProviderActionSchema } from "./schemas";
+import { LumenlinkActionProviderActionSchema } from "./schemas.js";
 import { z } from "zod";
 
 /**

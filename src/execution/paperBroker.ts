@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import * as crypto from 'node:crypto';
 import type { Order, OrderRequest, Ticker } from '../core/types.js';
 
 export class PaperBroker {
@@ -17,10 +17,11 @@ export class PaperBroker {
       side: orderRequest.side,
       type: orderRequest.type,
       quantity: orderRequest.quantity,
-      price: orderRequest.price,
-      status: 'filled',
+      price: orderRequest.price ?? null,
+      status: 'filled' as const,
       filledQuantity: orderRequest.quantity,
       avgFillPrice: fillPrice,
+      reason: null,
       createdAt: now,
       updatedAt: now
     };

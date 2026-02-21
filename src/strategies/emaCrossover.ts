@@ -29,6 +29,11 @@ export class EmaCrossoverStrategy implements Strategy {
     const currFast = fastEMA[fastEMA.length - 1];
     const currSlow = slowEMA[slowEMA.length - 1];
 
+    // Check for undefined values
+    if (prevFast == null || prevSlow == null || currFast == null || currSlow == null) {
+      return { action: 'HOLD', confidence: 0.1, reason: 'EMA values are undefined' };
+    }
+
     // Golden cross (bullish)
     if (prevFast <= prevSlow && currFast > currSlow) {
       const confidence = Math.min(0.9, 0.7 + Math.abs(currFast - currSlow) / currSlow * 2);

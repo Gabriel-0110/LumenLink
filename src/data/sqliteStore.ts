@@ -101,7 +101,14 @@ export class SqliteStore implements CandleStore {
         created_at=excluded.created_at,
         updated_at=excluded.updated_at
     `);
-    stmt.run(order);
+    // better-sqlite3 requires all named parameters to exist on the object (even if null).
+    // Normalize optional fields to null so the bind doesn't throw RangeError.
+    stmt.run({
+      ...order,
+      price: order.price ?? null,
+      avgFillPrice: order.avgFillPrice ?? null,
+      reason: order.reason ?? null,
+    });
   }
 
   async getOrders(): Promise<Order[]> {

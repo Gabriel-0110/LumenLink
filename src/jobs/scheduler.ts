@@ -8,7 +8,7 @@ export class Scheduler {
   add(name: string, everyMs: number, task: () => Promise<void>): void {
     const timer = setInterval(() => {
       void task().catch((err) => {
-        this.logger.error('scheduled task failed', { name, err: String(err) });
+        this.logger.error('scheduled task failed', { name, err: String(err), stack: err instanceof Error ? err.stack : undefined });
       });
     }, everyMs);
     this.timers.push(timer);

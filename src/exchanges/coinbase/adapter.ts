@@ -20,6 +20,23 @@ const toOrderStatus = (status: string): Order['status'] => {
   return 'pending';
 };
 
+/**
+ * Coinbase Advanced Trade v3 uses string enum granularity, not shorthand.
+ */
+const GRANULARITY_MAP: Record<string, string> = {
+  '1m': 'ONE_MINUTE',
+  '5m': 'FIVE_MINUTE',
+  '15m': 'FIFTEEN_MINUTE',
+  '30m': 'THIRTY_MINUTE',
+  '1h': 'ONE_HOUR',
+  '2h': 'TWO_HOUR',
+  '6h': 'SIX_HOUR',
+  '1d': 'ONE_DAY',
+};
+
+const toCoinbaseGranularity = (interval: string): string =>
+  GRANULARITY_MAP[interval] ?? interval; // pass through if already in Coinbase format
+
 export class CoinbaseAdapter implements ExchangeAdapter {
   constructor(private readonly auth: CoinbaseAuthMaterial) {}
 
@@ -41,7 +58,8 @@ export class CoinbaseAdapter implements ExchangeAdapter {
   }
 
   async getCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
-    const path = `${coinbaseEndpoints.candles(symbol)}?granularity=${encodeURIComponent(interval)}&limit=${limit}`;
+    const granularity = toCoinbaseGranularity(interval);
+    const path = `${coinbaseEndpoints.candles(symbol)}?granularity=${encodeURIComponent(granularity)}&limit=${limit}`;
     const headers = buildCoinbaseHeaders(this.auth, 'GET', path, '');
     const data = await getJson<CoinbaseCandlesResponse>(createCoinbaseClient(), path, headers);
     return data.candles.map((c) => ({
@@ -105,13 +123,19 @@ export class CoinbaseAdapter implements ExchangeAdapter {
     const headers = buildCoinbaseHeaders(this.auth, 'GET', path, '');
     const data = await getJson<CoinbaseOrderResponse>(createCoinbaseClient(), path, headers);
     const o = data.order;
+    const originalQuantity = o.total_size || 
+      o.order_configuration?.limit_limit_gtc?.base_size ||
+      o.order_configuration?.market_market_ioc?.base_size ||
+      o.filled_size;
+      
     return {
       orderId: o.order_id,
       clientOrderId: o.client_order_id,
       symbol: o.product_id,
       side: o.side.toLowerCase() as 'buy' | 'sell',
       type: o.order_configuration?.limit_limit_gtc ? 'limit' : 'market',
-      quantity: Number(o.filled_size || '0') || 0,
+      quantity: Number(originalQuantity || '0'),
+      price: o.order_configuration?.limit_limit_gtc ? Number(o.order_configuration.limit_limit_gtc.limit_price) : undefined,
       status: toOrderStatus(o.status),
       filledQuantity: Number(o.filled_size || '0'),
       avgFillPrice: Number(o.average_filled_price ?? 0) || undefined,
@@ -130,19 +154,27 @@ export class CoinbaseAdapter implements ExchangeAdapter {
       headers
     );
 
-    return (data.orders ?? []).map((o) => ({
-      orderId: o.order_id,
-      clientOrderId: o.client_order_id,
-      symbol: o.product_id,
-      side: o.side.toLowerCase() as 'buy' | 'sell',
-      type: o.order_configuration?.limit_limit_gtc ? 'limit' : 'market',
-      quantity: Number(o.filled_size || '0') || 0,
-      status: toOrderStatus(o.status),
-      filledQuantity: Number(o.filled_size || '0'),
-      avgFillPrice: Number(o.average_filled_price ?? 0) || undefined,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    }));
+    return (data.orders ?? []).map((o) => {
+      const originalQuantity = o.total_size || 
+        o.order_configuration?.limit_limit_gtc?.base_size ||
+        o.order_configuration?.market_market_ioc?.base_size ||
+        o.filled_size;
+        
+      return {
+        orderId: o.order_id,
+        clientOrderId: o.client_order_id,
+        symbol: o.product_id,
+        side: o.side.toLowerCase() as 'buy' | 'sell',
+        type: o.order_configuration?.limit_limit_gtc ? 'limit' : 'market',
+        quantity: Number(originalQuantity || '0'),
+        price: o.order_configuration?.limit_limit_gtc ? Number(o.order_configuration.limit_limit_gtc.limit_price) : undefined,
+        status: toOrderStatus(o.status),
+        filledQuantity: Number(o.filled_size || '0'),
+        avgFillPrice: Number(o.average_filled_price ?? 0) || undefined,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+    });
   }
 
   async getBalances(): Promise<Balance[]> {

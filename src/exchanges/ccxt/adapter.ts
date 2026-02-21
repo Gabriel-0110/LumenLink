@@ -10,8 +10,39 @@ interface CCXTConfig {
   options?: Record<string, unknown>;
 }
 
+// Define CCXT types
+interface CCXTTicker {
+  symbol: string;
+  bid?: number;
+  ask?: number;
+  last?: number;
+  baseVolume?: number;
+  timestamp?: number;
+}
+
+interface CCXTOrder {
+  id: string;
+  clientOrderId?: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  type: 'market' | 'limit';
+  amount: number;
+  price?: number;
+  status: string;
+  filled?: number;
+  average?: number;
+  timestamp?: number;
+  lastTradeTimestamp?: number;
+}
+
+interface CCXTBalance {
+  free: Record<string, number>;
+  used: Record<string, number>;
+  total: Record<string, number>;
+}
+
 export class CCXTAdapter implements ExchangeAdapter {
-  private exchange: ccxt.Exchange;
+  private exchange: any;
 
   constructor(config: CCXTConfig) {
     const ExchangeClass = (ccxt as any)[config.exchange];
@@ -50,12 +81,12 @@ export class CCXTAdapter implements ExchangeAdapter {
   }
 
   async getTicker(symbol: string): Promise<Ticker> {
-    const ticker = await this.exchange.fetchTicker(symbol);
+    const ticker = await this.exchange.fetchTicker(symbol) as CCXTTicker;
     return {
       symbol,
-      bid: ticker.bid ?? ticker.last,
-      ask: ticker.ask ?? ticker.last,
-      last: ticker.last,
+      bid: ticker.bid ?? ticker.last ?? 0,
+      ask: ticker.ask ?? ticker.last ?? 0,
+      last: ticker.last ?? 0,
       volume24h: ticker.baseVolume ?? 0,
       time: ticker.timestamp ?? Date.now(),
     };
@@ -63,17 +94,17 @@ export class CCXTAdapter implements ExchangeAdapter {
 
   async getCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
     const timeframe = this.mapIntervalToTimeframe(interval);
-    const ohlcv = await this.exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+    const ohlcv = await this.exchange.fetchOHLCV(symbol, timeframe, undefined, limit) as number[][];
 
-    return ohlcv.map(([timestamp, open, high, low, close, volume]) => ({
+    return ohlcv.map((bar: number[]) => ({
       symbol,
       interval,
-      time: timestamp,
-      open,
-      high,
-      low,
-      close,
-      volume: volume ?? 0,
+      time: bar[0] ?? Date.now(),
+      open: bar[1] ?? 0,
+      high: bar[2] ?? 0,
+      low: bar[3] ?? 0,
+      close: bar[4] ?? 0,
+      volume: bar[5] ?? 0,
     }));
   }
 
@@ -84,7 +115,7 @@ export class CCXTAdapter implements ExchangeAdapter {
       orderRequest.side,
       orderRequest.quantity,
       orderRequest.price
-    );
+    ) as CCXTOrder;
 
     return {
       orderId: order.id,
@@ -107,14 +138,14 @@ export class CCXTAdapter implements ExchangeAdapter {
   }
 
   async getOrder(orderId: string, symbol?: string): Promise<Order> {
-    const order = await this.exchange.fetchOrder(orderId, symbol);
+    const order = await this.exchange.fetchOrder(orderId, symbol) as CCXTOrder;
 
     return {
       orderId: order.id,
-      clientOrderId: order.clientOrderId,
+      clientOrderId: order.clientOrderId ?? '',
       symbol: order.symbol,
-      side: order.side as 'buy' | 'sell',
-      type: order.type as 'market' | 'limit',
+      side: order.side,
+      type: order.type,
       quantity: order.amount,
       price: order.price,
       status: this.toOrderStatus(order.status),
@@ -126,14 +157,14 @@ export class CCXTAdapter implements ExchangeAdapter {
   }
 
   async listOpenOrders(symbol?: string): Promise<Order[]> {
-    const orders = await this.exchange.fetchOpenOrders(symbol);
+    const orders = await this.exchange.fetchOpenOrders(symbol) as CCXTOrder[];
 
-    return orders.map(order => ({
+    return orders.map((order: CCXTOrder) => ({
       orderId: order.id,
-      clientOrderId: order.clientOrderId,
+      clientOrderId: order.clientOrderId ?? '',
       symbol: order.symbol,
-      side: order.side as 'buy' | 'sell',
-      type: order.type as 'market' | 'limit',
+      side: order.side,
+      type: order.type,
       quantity: order.amount,
       price: order.price,
       status: this.toOrderStatus(order.status),
@@ -145,7 +176,7 @@ export class CCXTAdapter implements ExchangeAdapter {
   }
 
   async getBalances(): Promise<Balance[]> {
-    const balance = await this.exchange.fetchBalance();
+    const balance = await this.exchange.fetchBalance() as CCXTBalance;
     
     return Object.entries(balance.free).map(([asset, free]) => ({
       asset,

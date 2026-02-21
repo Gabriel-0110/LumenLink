@@ -5,16 +5,15 @@ import { InMemoryMetrics } from './core/metrics.js';
 import { InMemoryStore } from './data/inMemoryStore.js';
 import { SqliteStore } from './data/sqliteStore.js';
 import { MarketDataService } from './data/marketDataService.js';
+import { SentimentService } from './data/sentimentService.js';
+import { OnChainService } from './data/onchainService.js';
 import { OrderState } from './execution/orderState.js';
 import { PaperBroker } from './execution/paperBroker.js';
 import { LiveBroker } from './execution/liveBroker.js';
 import { OrderManager } from './execution/orderManager.js';
 import { Reconciler } from './execution/reconciler.js';
 import { RiskEngine } from './risk/riskEngine.js';
-import { EmaCrossoverStrategy } from './strategies/emaCrossover.js';
-import { RsiMeanReversionStrategy } from './strategies/rsiMeanReversion.js';
-import { CompositeExampleStrategy } from './strategies/compositeExample.js';
-import type { Strategy } from './strategies/interface.js';
+import { createStrategy } from './strategies/selector.js';
 import type { ExchangeAdapter } from './exchanges/adapter.js';
 import { CoinbaseAdapter } from './exchanges/coinbase/adapter.js';
 import { CCXTAdapter } from './exchanges/ccxt/adapter.js';
@@ -132,12 +131,7 @@ const main = async (): Promise<void> => {
   const orderState = new OrderState(store);
   await orderState.hydrateFromStore();
 
-  const strategy: Strategy =
-    config.strategy === 'ema_crossover'
-      ? new EmaCrossoverStrategy()
-      : config.strategy === 'rsi_mean_reversion'
-        ? new RsiMeanReversionStrategy()
-        : new CompositeExampleStrategy();
+  const strategy = createStrategy(config.strategy);
 
   const orderManager = new OrderManager(
     config,
@@ -164,6 +158,24 @@ const main = async (): Promise<void> => {
     }
   };
 
+  // Initialize sentiment and on-chain data services
+  let sentimentService: SentimentService | undefined;
+  let onChainService: OnChainService | undefined;
+
+  try {
+    const cryptoPanicKey = await secrets.getSecret(
+      config.secrets.secretIds.cryptoPanicKey,
+      'CRYPTOPANIC_API_KEY'
+    );
+    sentimentService = new SentimentService(cryptoPanicKey);
+    onChainService = new OnChainService();
+    logger.info('sentiment and on-chain services initialized');
+  } catch (err) {
+    logger.warn('failed to initialize sentiment services, continuing without them', {
+      err: String(err)
+    });
+  }
+
   const loops = new TradingLoops(
     config,
     marketData,
@@ -173,7 +185,9 @@ const main = async (): Promise<void> => {
     orderManager,
     reconciler,
     alertMux,
-    logger
+    logger,
+    sentimentService,
+    onChainService
   );
 
   const scheduler = new Scheduler(logger);
@@ -181,6 +195,10 @@ const main = async (): Promise<void> => {
   scheduler.add('strategy', config.pollIntervalMs, async () => loops.strategyLoop());
   if (config.mode === 'live') {
     scheduler.add('reconcile', Math.max(10_000, config.pollIntervalMs), async () => loops.reconciliationLoop());
+  }
+  // Add sentiment loop (every 15 minutes = 900,000ms)
+  if (sentimentService && onChainService) {
+    scheduler.add('sentiment', 900_000, async () => loops.sentimentLoop());
   }
 
   const startedAt = Date.now();

@@ -24,11 +24,13 @@ const rawSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   HTTP_PORT: z.coerce.number().int().positive().default(8080),
 
-  MODE: z.enum(['paper', 'live']).default('paper'),
+  // Support both MODE and PAPER_TRADING for backward compatibility
+  MODE: z.enum(['paper', 'live']).optional(),
+  PAPER_TRADING: z.string().optional(),
   EXCHANGE: z.enum(['coinbase', 'binance', 'bybit']).default('coinbase'),
   SYMBOLS: z.string().optional(),
   INTERVAL: z.string().default('1h'),
-  STRATEGY: z.enum(['ema_crossover', 'rsi_mean_reversion', 'composite', 'advanced_composite']).default('rsi_mean_reversion'),
+  STRATEGY: z.enum(['ema_crossover', 'rsi_mean_reversion', 'composite', 'advanced_composite', 'grid_trading', 'smart_dca']).default('rsi_mean_reversion'),
 
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   ALLOW_LIVE_TRADING: z.string().optional(),
@@ -54,11 +56,26 @@ const rawSchema = z.object({
   USE_AWS_SECRETS_MANAGER: z.string().optional(),
   AWS_REGION: z.string().default('us-east-1'),
 
+  // Core trading API secrets
   SECRET_ID_COINBASE_KEY: z.string().default('prod/trading/coinbase/key'),
   SECRET_ID_COINBASE_SECRET: z.string().default('prod/trading/coinbase/secret'),
   SECRET_ID_COINBASE_PASSPHRASE: z.string().default('prod/trading/coinbase/passphrase'),
   SECRET_ID_BINANCE_KEY: z.string().default('prod/trading/binance/key'),
   SECRET_ID_BINANCE_SECRET: z.string().default('prod/trading/binance/secret'),
+  
+  // Data API secrets (optional)
+  SECRET_ID_CRYPTOPANIC_KEY: z.string().default('prod/data/cryptopanic/key'),
+  SECRET_ID_COINGECKO_KEY: z.string().default('prod/data/coingecko/key'),
+  SECRET_ID_COINMARKETCAP_KEY: z.string().default('prod/data/coinmarketcap/key'),
+  SECRET_ID_TWELVEDATA_KEY: z.string().default('prod/data/twelvedata/key'),
+  SECRET_ID_NEWS_API_KEY: z.string().default('prod/data/newsapi/key'),
+  SECRET_ID_LUNARCRUSH_KEY: z.string().default('prod/data/lunarcrush/key'),
+  SECRET_ID_GLASSNODE_KEY: z.string().default('prod/data/glassnode/key'),
+  SECRET_ID_NANSEN_KEY: z.string().default('prod/data/nansen/key'),
+  SECRET_ID_OPENAI_KEY: z.string().default('prod/ai/openai/key'),
+  SECRET_ID_ETHERSCAN_KEY: z.string().default('prod/data/etherscan/key'),
+  
+  // Alert secrets
   SECRET_ID_TELEGRAM_TOKEN: z.string().default('prod/alerts/telegram/token'),
   SECRET_ID_DISCORD_WEBHOOK: z.string().default('prod/alerts/discord/webhook')
 });
@@ -71,12 +88,21 @@ export const configSchema = rawSchema.transform((raw) => {
   const maxSlippageBps = parseNumber(raw.GUARD_MAX_SLIPPAGE_BPS, 20);
   const minVolume = parseNumber(raw.GUARD_MIN_VOLUME, 0);
 
+  // Handle MODE vs PAPER_TRADING compatibility
+  let mode: 'paper' | 'live' = 'paper';
+  if (raw.MODE) {
+    mode = raw.MODE;
+  } else if (raw.PAPER_TRADING) {
+    // Convert PAPER_TRADING boolean to MODE enum
+    mode = parseBoolean(raw.PAPER_TRADING, true) ? 'paper' : 'live';
+  }
+
   return {
     nodeEnv: raw.NODE_ENV,
     logLevel: raw.LOG_LEVEL,
     httpPort: raw.HTTP_PORT,
 
-    mode: raw.MODE,
+    mode,
     exchange: raw.EXCHANGE,
     symbols,
     interval: raw.INTERVAL,
@@ -119,11 +145,26 @@ export const configSchema = rawSchema.transform((raw) => {
       useAwsSecretsManager: parseBoolean(raw.USE_AWS_SECRETS_MANAGER, false),
       awsRegion: raw.AWS_REGION,
       secretIds: {
+        // Core trading APIs
         coinbaseKey: raw.SECRET_ID_COINBASE_KEY,
         coinbaseSecret: raw.SECRET_ID_COINBASE_SECRET,
         coinbasePassphrase: raw.SECRET_ID_COINBASE_PASSPHRASE,
         binanceKey: raw.SECRET_ID_BINANCE_KEY,
         binanceSecret: raw.SECRET_ID_BINANCE_SECRET,
+        
+        // Data APIs (optional)
+        cryptoPanicKey: raw.SECRET_ID_CRYPTOPANIC_KEY,
+        coingeckoKey: raw.SECRET_ID_COINGECKO_KEY,
+        coinmarketcapKey: raw.SECRET_ID_COINMARKETCAP_KEY,
+        twelvedataKey: raw.SECRET_ID_TWELVEDATA_KEY,
+        newsApiKey: raw.SECRET_ID_NEWS_API_KEY,
+        lunarcrushKey: raw.SECRET_ID_LUNARCRUSH_KEY,
+        glassnodeKey: raw.SECRET_ID_GLASSNODE_KEY,
+        nansenKey: raw.SECRET_ID_NANSEN_KEY,
+        openaiKey: raw.SECRET_ID_OPENAI_KEY,
+        etherscanKey: raw.SECRET_ID_ETHERSCAN_KEY,
+        
+        // Alerts
         telegramToken: raw.SECRET_ID_TELEGRAM_TOKEN,
         discordWebhook: raw.SECRET_ID_DISCORD_WEBHOOK
       }

@@ -32,7 +32,16 @@ export interface CoinbaseOrderResponse {
     side: 'BUY' | 'SELL';
     status: string;
     filled_size: string;
+    total_size?: string;  // Original order quantity
     average_filled_price?: string;
-    order_configuration?: Record<string, unknown>;
+    order_configuration?: Record<string, unknown> & {
+      limit_limit_gtc?: {
+        base_size: string;
+        limit_price: string;
+      };
+      market_market_ioc?: {
+        base_size: string;
+      };
+    };
   };
 }

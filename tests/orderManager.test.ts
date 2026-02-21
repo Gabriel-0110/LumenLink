@@ -31,6 +31,18 @@ const config: AppConfig = {
       coinbaseKey: 'a',
       coinbaseSecret: 'b',
       coinbasePassphrase: 'c',
+      binanceKey: 'prod/trading/binance/key',
+      binanceSecret: 'prod/trading/binance/secret',
+      cryptoPanicKey: '',
+      coingeckoKey: '',
+      coinmarketcapKey: '',
+      twelvedataKey: '',
+      newsApiKey: '',
+      lunarcrushKey: '',
+      glassnodeKey: '',
+      nansenKey: '',
+      openaiKey: '',
+      etherscanKey: '',
       telegramToken: 'd',
       discordWebhook: 'e'
     }

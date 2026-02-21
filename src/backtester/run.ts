@@ -7,8 +7,7 @@
 
 import { loadConfig } from '../config/load.js';
 import { CCXTAdapter } from '../exchanges/ccxt/adapter.js';
-import { RsiMeanReversionStrategy } from '../strategies/rsiMeanReversion.js';
-import { EmaCrossoverStrategy } from '../strategies/emaCrossover.js';
+import { createStrategy } from '../strategies/selector.js';
 import type { Strategy } from '../strategies/interface.js';
 import type { Candle } from '../core/types.js';
 import { JsonLogger } from '../core/logger.js';
@@ -68,7 +67,7 @@ class Backtester {
     // Run backtest
     for (let i = 30; i < candles.length; i++) {
       const historicalCandles = candles.slice(0, i + 1);
-      const currentCandle = candles[i];
+      const currentCandle = candles[i]!;
       const price = currentCandle.close;
 
       // Get strategy signal
@@ -76,7 +75,6 @@ class Backtester {
       const signal = signalResult.action === 'BUY' ? 'buy' : signalResult.action === 'SELL' ? 'sell' : 'hold';
 
       if (position === null && signal === 'buy') {
-        // Open position
         position = {
           entryPrice: price,
           stopLoss: price * (1 - this.stopLossPercent),
@@ -85,7 +83,6 @@ class Backtester {
           entryTime: currentCandle.time,
         };
       } else if (position !== null) {
-        // Check exit conditions
         let exitReason: BacktestTrade['reason'] | null = null;
 
         if (price <= position.stopLoss) {
@@ -94,13 +91,12 @@ class Backtester {
           exitReason = 'take_profit';
         } else if (signal === 'sell') {
           exitReason = 'signal';
-        } else if (i - position.entryIndex >= 50) { // Max 50 bars
+        } else if (i - position.entryIndex >= 50) {
           exitReason = 'timeout';
         }
 
         if (exitReason) {
           const pnlPercent = ((price - position.entryPrice) / position.entryPrice) * 100;
-          
           trades.push({
             symbol,
             entryPrice: position.entryPrice,
@@ -111,7 +107,6 @@ class Backtester {
             entryTime: position.entryTime,
             exitTime: currentCandle.time,
           });
-
           position = null;
         }
       }
@@ -179,9 +174,7 @@ async function main(): Promise<void> {
     });
 
     // Create strategy
-    const strategy: Strategy = config.strategy === 'ema_crossover' 
-      ? new EmaCrossoverStrategy()
-      : new RsiMeanReversionStrategy();
+    const strategy = createStrategy(config.strategy);
 
     const backtester = new Backtester(strategy, exchange);
 

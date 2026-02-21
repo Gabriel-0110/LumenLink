@@ -42,7 +42,7 @@ export interface Order {
   status: 'pending' | 'open' | 'filled' | 'canceled' | 'rejected';
   filledQuantity: number;
   avgFillPrice?: number;
-  reason?: string;
+  reason?: string | null;
   createdAt: number;
   updatedAt: number;
 }

@@ -24,6 +24,11 @@ export class RsiMeanReversionStrategy implements Strategy {
 
     const value = rsiValues[rsiValues.length - 1];
     
+    // Check for undefined RSI value
+    if (value == null) {
+      return { action: 'HOLD', confidence: 0.1, reason: 'RSI value is undefined' };
+    }
+    
     if (value <= this.oversold) {
       const confidence = Math.min(0.95, 0.65 + (this.oversold - value) / 20 * 0.2);
       return { action: 'BUY', confidence, reason: `RSI oversold (${value.toFixed(2)})` };

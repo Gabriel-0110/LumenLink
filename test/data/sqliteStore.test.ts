@@ -3,7 +3,7 @@ import { SqliteStore } from '../../src/data/sqliteStore.js';
 import { makeCandle, makeOrder } from '../helpers.js';
 import * as fs from 'node:fs';
 
-const TEST_DB = './test-runtime.sqlite';
+const TEST_DB = './data/test-runtime.sqlite';
 
 describe('SqliteStore', () => {
   let store: SqliteStore;

@@ -18,11 +18,11 @@ logs/
 *.log
 
 # Database files
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
 *.db
-*.sqlite
 *.sqlite3
-*.sqlite-shm
-*.sqlite-wal
 
 # IDE and editor files
 .vscode/

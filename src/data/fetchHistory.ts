@@ -64,7 +64,7 @@ type ExchangeConstructor = new (options?: Record<string, unknown>) => OhlcvExcha
 // ── Main ────────────────────────────────────────────────────────────────
 
 async function main() {
-  const store = new SqliteStore('./runtime.sqlite');
+  const store = new SqliteStore('./data/runtime.sqlite');
 
   // Init exchange (public endpoints only — no API keys needed for OHLCV)
   const exchangeConstructors = ccxt as unknown as Record<string, ExchangeConstructor>;
@@ -81,7 +81,7 @@ async function main() {
   console.log(`   Symbols:    ${SYMBOLS.join(', ')}`);
   console.log(`   Timeframes: ${TIMEFRAMES.join(', ')}`);
   console.log(`   Period:     ${MONTHS} months (since ${new Date(sinceMs).toISOString().slice(0, 10)})`);
-  console.log(`   DB:         ./runtime.sqlite\n`);
+  console.log(`   DB:         ./data/runtime.sqlite\n`);
 
   let totalCandles = 0;
 
@@ -142,7 +142,7 @@ async function main() {
     }
   }
 
-  console.log(`\n✅ Done — ${formatNumber(totalCandles)} total candles saved to runtime.sqlite\n`);
+  console.log(`\n✅ Done — ${formatNumber(totalCandles)} total candles saved to data/runtime.sqlite\n`);
 }
 
 main().catch(err => {

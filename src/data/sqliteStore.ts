@@ -5,7 +5,7 @@ import type { CandleStore } from './candleStore.js';
 export class SqliteStore implements CandleStore {
   private readonly db: Database.Database;
 
-  constructor(dbPath = './runtime.sqlite') {
+  constructor(dbPath = './data/runtime.sqlite') {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.init();

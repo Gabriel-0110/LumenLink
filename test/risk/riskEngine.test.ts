@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { RiskEngine } from '../../src/risk/riskEngine.js';
-import { makeTicker, makeSnapshot, makePosition } from '../helpers.js';
+import { makeTicker, makeSnapshot, makePosition, makeCandleSeries } from '../helpers.js';
 import type { Signal } from '../../src/core/types.js';
 
-// Minimal config that satisfies RiskEngine
 function makeConfig(overrides: Record<string, any> = {}) {
   return {
     mode: 'paper' as const,
@@ -92,7 +91,9 @@ describe('RiskEngine', () => {
   });
 
   it('allows selling when position exists', () => {
-    const engine = new RiskEngine(makeConfig({ risk: { maxDailyLossUsd: 150, maxPositionUsd: 50000, maxOpenPositions: 2, cooldownMinutes: 15 } }));
+    const engine = new RiskEngine(makeConfig({
+      risk: { maxDailyLossUsd: 150, maxPositionUsd: 50000, maxOpenPositions: 2, cooldownMinutes: 15 },
+    }));
     const result = engine.evaluate({
       signal: sellSignal,
       symbol: 'BTC-USD',
@@ -110,7 +111,7 @@ describe('RiskEngine', () => {
     const result = engine.evaluate({
       signal: buySignal,
       symbol: 'BTC-USD',
-      snapshot: makeSnapshot({ realizedPnlUsd: -200 }), // exceeds 150 limit
+      snapshot: makeSnapshot({ realizedPnlUsd: -200 }),
       ticker: makeTicker(),
       nowMs: Date.now(),
     });
@@ -122,7 +123,7 @@ describe('RiskEngine', () => {
     const engine = new RiskEngine(makeConfig());
     const result = engine.evaluate({
       signal: buySignal,
-      symbol: 'SOL-USD', // new symbol, not in existing positions
+      symbol: 'SOL-USD',
       snapshot: makeSnapshot({
         openPositions: [
           makePosition({ symbol: 'BTC-USD' }),
@@ -140,17 +141,16 @@ describe('RiskEngine', () => {
     const engine = new RiskEngine(makeConfig());
     const result = engine.evaluate({
       signal: buySignal,
-      symbol: 'BTC-USD', // already have this position
+      symbol: 'BTC-USD',
       snapshot: makeSnapshot({
         openPositions: [
           makePosition({ symbol: 'BTC-USD' }),
           makePosition({ symbol: 'ETH-USD' }),
         ],
       }),
-      ticker: makeTicker({ last: 1 }), // low price so position size stays small
+      ticker: makeTicker({ last: 1 }),
       nowMs: Date.now(),
     });
-    // Should not be blocked by max_open_positions (same symbol)
     expect(result.blockedBy).not.toBe('max_open_positions');
   });
 
@@ -161,7 +161,7 @@ describe('RiskEngine', () => {
       signal: buySignal,
       symbol: 'BTC-USD',
       snapshot: makeSnapshot({
-        lastStopOutAtBySymbol: { 'BTC-USD': now - 5 * 60_000 }, // 5 min ago, within 15 min cooldown
+        lastStopOutAtBySymbol: { 'BTC-USD': now - 5 * 60_000 },
       }),
       ticker: makeTicker(),
       nowMs: now,
@@ -177,7 +177,7 @@ describe('RiskEngine', () => {
       signal: buySignal,
       symbol: 'BTC-USD',
       snapshot: makeSnapshot({
-        lastStopOutAtBySymbol: { 'BTC-USD': now - 20 * 60_000 }, // 20 min ago, past 15 min cooldown
+        lastStopOutAtBySymbol: { 'BTC-USD': now - 20 * 60_000 },
       }),
       ticker: makeTicker(),
       nowMs: now,
@@ -191,10 +191,121 @@ describe('RiskEngine', () => {
       signal: buySignal,
       symbol: 'BTC-USD',
       snapshot: makeSnapshot(),
-      ticker: makeTicker({ bid: 49000, ask: 51000 }), // ~400 bps spread
+      ticker: makeTicker({ bid: 49000, ask: 51000 }),
       nowMs: Date.now(),
     });
     expect(result.allowed).toBe(false);
     expect(result.blockedBy).toBe('spread_guard');
+  });
+
+  // ── New: Pair Whitelist ──────────────────────────────────────
+
+  it('blocks pairs not in whitelist', () => {
+    const engine = new RiskEngine(makeConfig(), { allowedPairs: ['BTC-USD', 'ETH-USD'] });
+    const result = engine.evaluate({
+      signal: buySignal,
+      symbol: 'DOGE-USD',
+      snapshot: makeSnapshot(),
+      ticker: makeTicker(),
+      nowMs: Date.now(),
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.blockedBy).toBe('pair_not_whitelisted');
+  });
+
+  it('allows whitelisted pairs', () => {
+    const engine = new RiskEngine(makeConfig(), { allowedPairs: ['BTC-USD', 'ETH-USD'] });
+    const result = engine.evaluate({
+      signal: buySignal,
+      symbol: 'BTC-USD',
+      snapshot: makeSnapshot(),
+      ticker: makeTicker(),
+      nowMs: Date.now(),
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  it('allows all pairs when no whitelist set', () => {
+    const engine = new RiskEngine(makeConfig());
+    const result = engine.evaluate({
+      signal: buySignal,
+      symbol: 'SHIB-USD',
+      snapshot: makeSnapshot(),
+      ticker: makeTicker(),
+      nowMs: Date.now(),
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  // ── New: Max Leverage ────────────────────────────────────────
+
+  it('blocks when leverage exceeds max', () => {
+    const engine = new RiskEngine(makeConfig(), { maxLeverage: 3 });
+    const result = engine.evaluate({
+      signal: buySignal,
+      symbol: 'BTC-USD',
+      snapshot: makeSnapshot(),
+      ticker: makeTicker(),
+      nowMs: Date.now(),
+      leverage: 5,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.blockedBy).toBe('max_leverage');
+  });
+
+  it('allows leverage within limit', () => {
+    const engine = new RiskEngine(makeConfig(), { maxLeverage: 3 });
+    const result = engine.evaluate({
+      signal: buySignal,
+      symbol: 'BTC-USD',
+      snapshot: makeSnapshot(),
+      ticker: makeTicker(),
+      nowMs: Date.now(),
+      leverage: 2,
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  // ── New: Event Lockout ───────────────────────────────────────
+
+  it('blocks during event lockout window', () => {
+    const engine = new RiskEngine(makeConfig());
+    const now = Date.now();
+    engine.getEventLockout().addEvents([{
+      name: 'FOMC Rate Decision',
+      time: now + 10 * 60_000, // 10 min from now
+      category: 'macro',
+      impact: 'high',
+    }]);
+
+    const result = engine.evaluate({
+      signal: buySignal,
+      symbol: 'BTC-USD',
+      snapshot: makeSnapshot(),
+      ticker: makeTicker(),
+      nowMs: now, // within 30 min lockout window
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.blockedBy).toBe('event_lockout');
+  });
+
+  it('allows trading outside event lockout window', () => {
+    const engine = new RiskEngine(makeConfig());
+    const now = Date.now();
+    engine.getEventLockout().addEvents([{
+      name: 'CPI Release',
+      time: now + 5 * 3_600_000, // 5 hours from now
+      category: 'macro',
+      impact: 'high',
+    }]);
+
+    const result = engine.evaluate({
+      signal: buySignal,
+      symbol: 'BTC-USD',
+      snapshot: makeSnapshot(),
+      ticker: makeTicker(),
+      nowMs: now,
+    });
+    expect(result.allowed).toBe(true);
   });
 });

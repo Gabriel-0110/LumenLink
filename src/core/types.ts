@@ -102,5 +102,9 @@ export interface RiskDecision {
     | 'slippage_guard'
     | 'min_volume'
     | 'no_position'
-    | 'signal_cooldown';
+    | 'signal_cooldown'
+    | 'pair_not_whitelisted'
+    | 'volatility_circuit_breaker'
+    | 'event_lockout'
+    | 'max_leverage';
 }

@@ -1,0 +1,44 @@
+{
+  "name": "lumen-link",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Unified crypto trading bot merging TypeScript architecture with Python API integrations - supports paper/live execution, backtesting, and comprehensive risk controls",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "paper": "MODE=paper tsx src/index.ts",
+    "backtest": "tsx src/backtester/run.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.804.0",
+    "axios": "^1.8.4",
+    "better-sqlite3": "^11.7.0",
+    "ccxt": "^4.3.93",
+    "dotenv": "^16.4.5",
+    "technicalindicators": "^3.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/ccxt": "^1.102.7",
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.19.0",
+    "@typescript-eslint/parser": "^8.19.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -2,6 +2,7 @@ import type { AppConfig } from '../config/types.js';
 import type { AccountSnapshot, RiskDecision, Signal, Ticker } from '../core/types.js';
 import { computeSpreadBps, estimateSlippageBps } from './guards.js';
 import { exceedsMaxDailyLoss, exceedsMaxOpenPositions, exceedsMaxPositionUsd } from './limits.js';
+import { computePositionUsd } from './positionSizing.js';
 
 export class RiskEngine {
   constructor(private readonly config: AppConfig) {}
@@ -27,6 +28,14 @@ export class RiskEngine {
       return { allowed: false, reason: 'No action signal' };
     }
 
+    // Bug 1: Phantom sells — block selling symbols you don't own
+    if (signal.action === 'SELL') {
+      const pos = snapshot.openPositions.find((p) => p.symbol === symbol);
+      if (!pos || pos.quantity <= 0) {
+        return { allowed: false, reason: 'No position to sell' };
+      }
+    }
+
     if (exceedsMaxDailyLoss(snapshot, this.config.risk.maxDailyLossUsd)) {
       return { allowed: false, reason: 'Max daily loss reached', blockedBy: 'max_daily_loss' };
     }
@@ -35,7 +44,10 @@ export class RiskEngine {
       return { allowed: false, reason: 'Max open positions reached', blockedBy: 'max_open_positions' };
     }
 
-    if (exceedsMaxPositionUsd(snapshot, symbol, this.config.risk.maxPositionUsd)) {
+    const incomingOrderUsd = signal.action === 'BUY'
+      ? computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd)
+      : 0;
+    if (exceedsMaxPositionUsd(snapshot, symbol, this.config.risk.maxPositionUsd, ticker.last, incomingOrderUsd)) {
       return { allowed: false, reason: 'Max position exceeded', blockedBy: 'max_position_usd' };
     }
 

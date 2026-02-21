@@ -86,5 +86,7 @@ export interface RiskDecision {
     | 'cooldown'
     | 'spread_guard'
     | 'slippage_guard'
-    | 'min_volume';
+    | 'min_volume'
+    | 'no_position'
+    | 'signal_cooldown';
 }

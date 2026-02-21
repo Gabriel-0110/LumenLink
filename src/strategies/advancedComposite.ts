@@ -226,9 +226,9 @@ export class AdvancedCompositeStrategy implements Strategy {
     if (s.price > s.ema200) { score += 1; reasons.push('Above EMA200'); }
     else { score -= 1; reasons.push('Below EMA200'); }
 
-    // --- RSI (±2 extreme, ±1 approaching) ---
-    if (s.rsi <= 30) { score += 2; reasons.push(`RSI oversold (${s.rsi.toFixed(0)})`); }
-    else if (s.rsi >= 70) { score -= 2; reasons.push(`RSI overbought (${s.rsi.toFixed(0)})`); }
+    // --- RSI (±2.5 extreme, ±1 approaching) ---
+    if (s.rsi <= 30) { score += 2.5; reasons.push(`RSI oversold (${s.rsi.toFixed(0)})`); }
+    else if (s.rsi >= 70) { score -= 2.5; reasons.push(`RSI overbought (${s.rsi.toFixed(0)})`); }
     else if (s.rsi <= 40) { score += 1; reasons.push(`RSI low (${s.rsi.toFixed(0)})`); }
     else if (s.rsi >= 60) { score -= 1; reasons.push(`RSI high (${s.rsi.toFixed(0)})`); }
 
@@ -323,6 +323,83 @@ export class AdvancedCompositeStrategy implements Strategy {
         if (mtfResult.confidenceBoost < 0) {
           score += mtfResult.confidenceBoost * 10; // This will reduce score since boost is negative
           reasons.push('Higher timeframe disagrees');
+        }
+      }
+    }
+
+    // --- Oscillator consensus bonus (±1.5) ---
+    {
+      let overboughtCount = 0;
+      let oversoldCount = 0;
+      if (s.rsi >= 70) overboughtCount++; if (s.rsi <= 30) oversoldCount++;
+      if (s.mfi > 80) overboughtCount++; if (s.mfi < 20) oversoldCount++;
+      if (s.cci > 100) overboughtCount++; if (s.cci < -100) oversoldCount++;
+      if (s.stochK > 80) overboughtCount++; if (s.stochK < 20) oversoldCount++;
+      if (s.williamsR > -20) overboughtCount++; if (s.williamsR < -80) oversoldCount++;
+      if (overboughtCount >= 3) { score -= 1.5; reasons.push(`Oscillator consensus overbought (${overboughtCount})`); }
+      if (oversoldCount >= 3) { score += 1.5; reasons.push(`Oscillator consensus oversold (${oversoldCount})`); }
+    }
+
+    // --- Extreme overbought/oversold veto ---
+    if (s.rsi > 85 && s.mfi > 85 && s.cci > 300 && s.stochK > 90) {
+      if (score > 1.5) { score = 1.5; }
+      reasons.push('Extreme overbought veto');
+    }
+    if (s.rsi < 15 && s.mfi < 15 && s.cci < -300 && s.stochK < 10) {
+      if (score < -1.5) { score = -1.5; }
+      reasons.push('Extreme oversold veto');
+    }
+
+    // --- Minimum confluence check ---
+    {
+      // Count individual indicator contributions in the score's direction
+      const dir = score > 0 ? 1 : score < 0 ? -1 : 0;
+      if (dir !== 0) {
+        // Re-evaluate each indicator's contribution direction
+        let agreeing = 0;
+        // EMA stack
+        if (dir > 0 && s.ema9 > s.ema21 && s.ema21 > s.ema50) agreeing++;
+        if (dir < 0 && s.ema9 < s.ema21 && s.ema21 < s.ema50) agreeing++;
+        // EMA200
+        if (dir > 0 && s.price > s.ema200) agreeing++;
+        if (dir < 0 && s.price < s.ema200) agreeing++;
+        // RSI
+        if (dir > 0 && s.rsi <= 40) agreeing++;
+        if (dir < 0 && s.rsi >= 60) agreeing++;
+        // MACD
+        if (dir > 0 && s.macdHist > 0) agreeing++;
+        if (dir < 0 && s.macdHist < 0) agreeing++;
+        // ADX+DI
+        if (s.adx > 25) {
+          if (dir > 0 && s.pdi > s.mdi) agreeing++;
+          if (dir < 0 && s.pdi < s.mdi) agreeing++;
+        }
+        // BB position
+        const bbRange = s.bbUpper - s.bbLower;
+        if (bbRange > 0) {
+          const bbPos = (s.price - s.bbLower) / bbRange;
+          if (dir > 0 && bbPos <= 0.3) agreeing++;
+          if (dir < 0 && bbPos >= 0.7) agreeing++;
+        }
+        // StochRSI
+        if (dir > 0 && s.stochK < 30) agreeing++;
+        if (dir < 0 && s.stochK > 70) agreeing++;
+        // MFI
+        if (dir > 0 && s.mfi < 30) agreeing++;
+        if (dir < 0 && s.mfi > 70) agreeing++;
+        // CCI
+        if (dir > 0 && s.cci < -50) agreeing++;
+        if (dir < 0 && s.cci > 50) agreeing++;
+        // VWAP
+        if (dir > 0 && s.price > s.vwap) agreeing++;
+        if (dir < 0 && s.price < s.vwap) agreeing++;
+
+        if (agreeing < 4) {
+          const cappedScore = dir > 0 ? Math.min(score, 1.5) : Math.max(score, -1.5);
+          if (cappedScore !== score) {
+            score = cappedScore;
+            reasons.push(`Thin confluence (${agreeing} indicators)`);
+          }
         }
       }
     }

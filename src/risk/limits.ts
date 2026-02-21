@@ -18,10 +18,14 @@ export const exceedsMaxOpenPositions = (
 export const exceedsMaxPositionUsd = (
   snapshot: AccountSnapshot,
   symbol: string,
-  maxPositionUsd: number
+  maxPositionUsd: number,
+  currentPrice?: number,
+  incomingOrderUsd?: number
 ): boolean => {
   const position = snapshot.openPositions.find((p) => p.symbol === symbol);
-  if (!position) return false;
-  const notional = Math.abs(position.quantity * position.marketPrice);
-  return notional >= maxPositionUsd;
+  if (!position) return (incomingOrderUsd ?? 0) >= maxPositionUsd;
+  const price = currentPrice ?? position.marketPrice;
+  const existingNotional = Math.abs(position.quantity * price);
+  const totalNotional = existingNotional + (incomingOrderUsd ?? 0);
+  return totalNotional >= maxPositionUsd;
 };

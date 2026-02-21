@@ -43,6 +43,10 @@ export class TradingLoops {
     openPositions: 0
   };
 
+  // Bug 4: Duplicate signal cooldown
+  private readonly lastSignalTime = new Map<string, { action: string; timestamp: number }>();
+  private static readonly SIGNAL_COOLDOWN_MS = 300_000; // 5 minutes
+
   private latestSentiment?: SentimentData;
   private latestMarketOverview?: MarketOverview;
   
@@ -228,8 +232,21 @@ export class TradingLoops {
         continue;
       }
 
+      // Bug 4: Duplicate signal cooldown
+      const cooldownKey = `${symbol}:${signal.action}`;
+      const lastExec = this.lastSignalTime.get(cooldownKey);
+      if (lastExec && Date.now() - lastExec.timestamp < TradingLoops.SIGNAL_COOLDOWN_MS) {
+        this.logger.info('Signal cooldown active', {
+          symbol,
+          action: signal.action,
+          lastExecMs: Date.now() - lastExec.timestamp
+        });
+        continue;
+      }
+
       const order = await this.orderManager.submitSignal({ symbol, signal, ticker });
       if (order) {
+        this.lastSignalTime.set(cooldownKey, { action: signal.action, timestamp: Date.now() });
         this.applyOrderToSnapshot(order.symbol, order.side, order.filledQuantity, order.avgFillPrice ?? ticker.last);
         
         // Handle trailing stops for new positions

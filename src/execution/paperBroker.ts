@@ -17,7 +17,7 @@ export class PaperBroker {
       side: orderRequest.side,
       type: orderRequest.type,
       quantity: orderRequest.quantity,
-      price: orderRequest.price ?? null,
+      price: orderRequest.price ?? undefined,
       status: 'filled' as const,
       filledQuantity: orderRequest.quantity,
       avgFillPrice: fillPrice,

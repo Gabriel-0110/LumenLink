@@ -1,10 +1,10 @@
-FROM node:22-slim AS base
+FROM node:22-alpine AS base
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
 # Build dependencies for better-sqlite3
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
@@ -19,20 +19,19 @@ COPY src/ src/
 # Build
 RUN pnpm run build
 
-# ── Production stage ─────────────────────────────────────────────
-FROM node:22-slim AS production
+# Keep only production dependencies for runtime image
+RUN pnpm prune --prod
 
-RUN corepack enable && corepack prepare pnpm@9 --activate
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+# ── Production stage ─────────────────────────────────────────────
+FROM node:22-alpine AS production
 
 # Run as non-root user
-RUN groupadd -r lumenlink && useradd -r -g lumenlink -m lumenlink
+RUN addgroup -S lumenlink && adduser -S lumenlink -G lumenlink
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
-
+COPY --from=base /app/package.json ./package.json
+COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/dist ./dist
 
 # Data directory for SQLite

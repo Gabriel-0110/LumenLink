@@ -46,7 +46,7 @@ export class RegimeDetector {
     this.atrPeriod = config.atrPeriod ?? 14;
     this.emaPeriod = config.emaPeriod ?? 50;
     this.bbPeriod = config.bbPeriod ?? 20;
-    this.atrSpikeThreshold = config.atrSpikeThreshold ?? 2.0;
+    this.atrSpikeThreshold = config.atrSpikeThreshold ?? 2.8; // raised from 2.0 — 5m micro-volatility spikes otherwise always block
   }
 
   /**
@@ -136,17 +136,17 @@ export class RegimeDetector {
       confidence = 0.5 + (1 - bbWidth / avgBBWidth) * 0.3;
       trendDirection = 0;
       details = `BB squeeze detected (width ${(bbWidth * 100).toFixed(1)}% vs avg ${(avgBBWidth * 100).toFixed(1)}%). Breakout imminent.`;
-    } else if (currentAdx > 25) {
+    } else if (currentAdx > 20) { // lowered from 25 — 5m ADX rarely hits 25
       // Strong trend
-      if (priceVsEma > 0.005 && currentRsi > 45) {
+      if (priceVsEma > 0.003 && currentRsi > 42) {
         regime = 'trending_up';
         trendDirection = 1;
-        confidence = Math.min(1, currentAdx / 50);
+        confidence = Math.min(1, currentAdx / 40);
         details = `Uptrend: ADX ${currentAdx.toFixed(1)}, price ${(priceVsEma * 100).toFixed(1)}% above EMA${this.emaPeriod}, RSI ${currentRsi.toFixed(0)}`;
-      } else if (priceVsEma < -0.005 && currentRsi < 55) {
+      } else if (priceVsEma < -0.003 && currentRsi < 58) {
         regime = 'trending_down';
         trendDirection = -1;
-        confidence = Math.min(1, currentAdx / 50);
+        confidence = Math.min(1, currentAdx / 40);
         details = `Downtrend: ADX ${currentAdx.toFixed(1)}, price ${(Math.abs(priceVsEma) * 100).toFixed(1)}% below EMA${this.emaPeriod}, RSI ${currentRsi.toFixed(0)}`;
       } else {
         regime = 'ranging';
@@ -158,7 +158,7 @@ export class RegimeDetector {
       // Weak trend = ranging
       regime = 'ranging';
       trendDirection = 0;
-      confidence = Math.min(1, (25 - currentAdx) / 25);
+      confidence = Math.min(1, (20 - currentAdx) / 20);
       details = `Range-bound: ADX ${currentAdx.toFixed(1)}, no clear direction.`;
     }
 

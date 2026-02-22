@@ -355,6 +355,10 @@ export class TradingLoops {
       }
 
       const signal = this.strategy.onCandle(latest, { candles, symbol, mtfResult });
+
+      // Always log what the strategy decided (visible in logs for easy diagnosis)
+      this.logger.info('strategy signal', { symbol, action: signal.action, confidence: signal.confidence?.toFixed(2), reason: signal.reason });
+
       const decision = this.riskEngine.evaluate({
         signal,
         symbol,
@@ -367,7 +371,8 @@ export class TradingLoops {
         this.logger.info('risk blocked signal', {
           symbol,
           action: signal.action,
-          reason: decision.reason,
+          signalReason: signal.reason,
+          blockReason: decision.reason,
           blockedBy: decision.blockedBy
         });
         continue;

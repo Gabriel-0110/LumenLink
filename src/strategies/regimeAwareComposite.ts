@@ -23,10 +23,10 @@ export class RegimeAwareCompositeStrategy implements Strategy {
 
   private readonly regimeDetector = new RegimeDetector();
 
-  // Pre-instantiated strategy variants with different score thresholds
-  private readonly trendingStrong = new AdvancedCompositeStrategy({ minScoreThreshold: 1.5 });
-  private readonly trendingNormal = new AdvancedCompositeStrategy({ minScoreThreshold: 2.0 });
-  private readonly breakoutStrict = new AdvancedCompositeStrategy({ minScoreThreshold: 3.5 });
+  // Pre-instantiated strategy variants with 5m-tuned score thresholds
+  private readonly trendingStrong = new AdvancedCompositeStrategy({ minScoreThreshold: 0.8 }); // was 1.5
+  private readonly trendingNormal = new AdvancedCompositeStrategy({ minScoreThreshold: 1.2 }); // was 2.0
+  private readonly breakoutStrict = new AdvancedCompositeStrategy({ minScoreThreshold: 2.0 }); // was 3.5
   private readonly rangingMeanRev = new RsiMeanReversionStrategy(14, 30, 70);
 
   onCandle(candle: Candle, context: StrategyContext): Signal {
@@ -70,8 +70,8 @@ export class RegimeAwareCompositeStrategy implements Strategy {
     }
 
     // ── 4. Trending up/down → advanced composite ──────────────
-    // Use a tighter threshold in strong trends (ADX > 40) to catch moves earlier
-    const strategy = regime.adx > 40 ? this.trendingStrong : this.trendingNormal;
+    // Use a tighter threshold in strong trends (ADX > 28) to catch moves earlier — was 40, 5m ADX rarely hits 40
+    const strategy = regime.adx > 28 ? this.trendingStrong : this.trendingNormal;
     const signal = strategy.onCandle(candle, context);
     const regimeLabel = regime.regime === 'trending_up' ? 'Trending↑' : 'Trending↓';
     return {

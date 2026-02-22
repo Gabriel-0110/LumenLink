@@ -91,6 +91,8 @@ export interface AccountSnapshot {
 export interface RiskDecision {
   allowed: boolean;
   reason: string;
+  /** ATR-computed position size (USD). Set by RiskEngine when allowed=true. Consumers should prefer this over flat sizing. */
+  positionSizeUsd?: number;
   blockedBy?:
     | 'kill_switch'
     | 'live_disabled'
@@ -106,5 +108,6 @@ export interface RiskDecision {
     | 'pair_not_whitelisted'
     | 'volatility_circuit_breaker'
     | 'event_lockout'
-    | 'max_leverage';
+    | 'max_leverage'
+    | 'anomaly';
 }

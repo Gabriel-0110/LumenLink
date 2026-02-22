@@ -1,8 +1,10 @@
+import { ATR } from 'technicalindicators';
 import type { AppConfig } from '../config/types.js';
 import type { AccountSnapshot, Candle, RiskDecision, Signal, Ticker } from '../core/types.js';
+import { AnomalyDetector } from '../data/anomalyDetector.js';
 import { computeSpreadBps, estimateSlippageBps } from './guards.js';
 import { exceedsMaxDailyLoss, exceedsMaxOpenPositions, exceedsMaxPositionUsd } from './limits.js';
-import { computePositionUsd } from './positionSizing.js';
+import { computePositionUsd, computePositionUsdATR } from './positionSizing.js';
 import { VolatilityGuard } from './volatilityGuard.js';
 import { EventLockout } from './eventLockout.js';
 
@@ -20,6 +22,7 @@ export interface RiskEngineConfig {
 export class RiskEngine {
   private readonly volatilityGuard: VolatilityGuard;
   private readonly eventLockout: EventLockout;
+  private readonly anomalyDetector: AnomalyDetector;
   private readonly allowedPairs: Set<string> | null;
   private readonly maxLeverage: number;
 
@@ -33,6 +36,7 @@ export class RiskEngine {
     this.eventLockout = new EventLockout({
       enabled: riskConfig.eventLockoutEnabled ?? true,
     });
+    this.anomalyDetector = new AnomalyDetector();
     this.allowedPairs = riskConfig.allowedPairs?.length
       ? new Set(riskConfig.allowedPairs)
       : null;
@@ -93,12 +97,34 @@ export class RiskEngine {
       return { allowed: false, reason: 'Max open positions reached', blockedBy: 'max_open_positions' };
     }
 
-    // ── 8. Max position size ────────────────────────────────────
-    const incomingOrderUsd = signal.action === 'BUY'
-      ? computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd)
-      : 0;
-    if (exceedsMaxPositionUsd(snapshot, symbol, this.config.risk.maxPositionUsd, ticker.last, incomingOrderUsd)) {
-      return { allowed: false, reason: 'Max position exceeded', blockedBy: 'max_position_usd' };
+    // ── 8. Max position size (BUY only — SELL is never a size violation) ───────
+    // Compute ATR-based size when candles are available, else fall back to convex confidence scaling.
+    let positionSizeUsd: number | undefined;
+    if (signal.action === 'BUY') {
+      if (candles && candles.length >= 30) {
+        const atrValues = ATR.calculate({
+          high: candles.map(c => c.high),
+          low: candles.map(c => c.low),
+          close: candles.map(c => c.close),
+          period: 14,
+        });
+        const currentAtr = atrValues[atrValues.length - 1];
+        if (currentAtr && ticker.last > 0) {
+          const { positionUsd } = computePositionUsdATR(
+            snapshot.cashUsd,
+            0.01,          // 1% risk per trade
+            currentAtr,
+            ticker.last,
+            1.5,           // 1.5x ATR stop distance
+          );
+          positionSizeUsd = Math.min(positionUsd, this.config.risk.maxPositionUsd);
+        }
+      }
+      const incomingOrderUsd = positionSizeUsd ?? computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd);
+      if (exceedsMaxPositionUsd(snapshot, symbol, this.config.risk.maxPositionUsd, ticker.last, incomingOrderUsd)) {
+        return { allowed: false, reason: 'Max position exceeded', blockedBy: 'max_position_usd' };
+      }
+      if (!positionSizeUsd) positionSizeUsd = incomingOrderUsd;
     }
 
     // ── 9. Cooldown after stop-out ──────────────────────────────
@@ -146,6 +172,19 @@ export class RiskEngine {
       return { allowed: false, reason: eventCheck.reason, blockedBy: 'event_lockout' };
     }
 
-    return { allowed: true, reason: 'All 15 risk checks passed' };
+    // ── 16. Anomaly detection ───────────────────────────────────
+    if (candles && candles.length >= 20) {
+      const anomalies = this.anomalyDetector.checkCandles(candles);
+      const highSeverity = anomalies.filter(a => a.severity === 'high');
+      if (highSeverity.length > 0) {
+        return {
+          allowed: false,
+          reason: `Anomaly detected: ${highSeverity[0]!.message}`,
+          blockedBy: 'anomaly',
+        };
+      }
+    }
+
+    return { allowed: true, reason: 'All 16 risk checks passed', positionSizeUsd };
   }
 }

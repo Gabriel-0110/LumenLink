@@ -1,6 +1,7 @@
 import type { AppConfig } from '../config/types.js';
-import type { AccountSnapshot, Candle } from '../core/types.js';
+import type { AccountSnapshot, Candle, Position } from '../core/types.js';
 import type { Logger } from '../core/logger.js';
+import type { ExchangeAdapter } from '../exchanges/adapter.js';
 import type { AlertService } from '../alerts/interface.js';
 import { MarketDataService } from '../data/marketDataService.js';
 import { OrderManager } from '../execution/orderManager.js';
@@ -78,6 +79,67 @@ export class TradingLoops {
     this.multiTimeframeAnalyzer = new MultiTimeframeAnalyzer();
   }
 
+  /**
+   * Seed the in-memory snapshot with real balances fetched from the exchange.
+   * Called once at startup so the bot knows about any pre-existing holdings
+   * (e.g. you already hold BTC before the first run) and can issue SELL signals
+   * without being blocked by phantom-sell protection.
+   */
+  async hydrateFromExchange(exchange: ExchangeAdapter): Promise<void> {
+    try {
+      const balances = await exchange.getBalances();
+
+      // Seed cash from USD / USDC balance
+      const usd  = balances.find((b) => b.asset === 'USD')?.free  ?? 0;
+      const usdc = balances.find((b) => b.asset === 'USDC')?.free ?? 0;
+      this.snapshot.cashUsd = usd + usdc;
+
+      // Seed open positions for each configured symbol that has a non-zero holding
+      const positions: Position[] = [];
+      for (const symbol of this.config.symbols) {
+        // Parse base asset: 'BTC-USD' → 'BTC', 'BTC/USDT' → 'BTC'
+        const base = symbol.split(/[-\/]/)[0];
+        if (!base) continue;
+
+        const holding = balances.find((b) => b.asset === base);
+        if (!holding || holding.free <= 0) continue;
+
+        try {
+          const ticker = await exchange.getTicker(symbol);
+          positions.push({
+            symbol,
+            quantity: holding.free,
+            avgEntryPrice: ticker.last, // best estimate; actual entry price unknown
+            marketPrice: ticker.last,
+          });
+          this.logger.info('seeded existing position from exchange balance', {
+            symbol,
+            quantity: holding.free,
+            marketPrice: ticker.last,
+            valueUsd: (holding.free * ticker.last).toFixed(2),
+          });
+        } catch (err) {
+          this.logger.warn('could not fetch ticker for held asset — skipping position seed', {
+            symbol, base, err: String(err),
+          });
+        }
+      }
+
+      this.snapshot.openPositions = positions;
+
+      const totalUsd = positions.reduce((s, p) => s + p.quantity * p.marketPrice, 0);
+      this.logger.info('snapshot hydrated from exchange', {
+        cashUsd: this.snapshot.cashUsd,
+        positionsSeeded: positions.length,
+        totalHoldingValueUsd: totalUsd.toFixed(2),
+      });
+    } catch (err) {
+      this.logger.warn('failed to hydrate snapshot from exchange — using empty defaults', {
+        err: String(err),
+      });
+    }
+  }
+
   getStatus(): RuntimeState {
     this.runtime.openPositions = this.snapshot.openPositions.length;
     this.runtime.dailyPnlEstimate = this.snapshot.realizedPnlUsd + this.snapshot.unrealizedPnlUsd;
@@ -95,6 +157,85 @@ export class TradingLoops {
     };
     
     return this.runtime;
+  }
+
+  /** Returns all data needed by the rich web dashboard. */
+  async getRichStatus(journal?: { getMultiDaySummary(days: number): unknown[]; getDailySummary(date: string): unknown; getRecent(limit: number): unknown[]; getTradeCount(): number }) {
+    const base = this.getStatus();
+    const totalEquityUsd = this.snapshot.cashUsd +
+      this.snapshot.openPositions.reduce((s, p) => s + p.quantity * p.marketPrice, 0);
+
+    const positions = this.snapshot.openPositions.map(p => ({
+      symbol: p.symbol,
+      quantity: p.quantity,
+      avgEntryPrice: p.avgEntryPrice,
+      marketPrice: p.marketPrice,
+      valueUsd: p.quantity * p.marketPrice,
+      unrealizedPnlUsd: (p.marketPrice - p.avgEntryPrice) * p.quantity,
+      unrealizedPnlPct: p.avgEntryPrice > 0
+        ? ((p.marketPrice - p.avgEntryPrice) / p.avgEntryPrice) * 100
+        : 0,
+    }));
+
+    // Collect sparkline prices from all configured symbols (last 72 candles)
+    const sparklines: Record<string, Array<{ time: number; close: number; high: number; low: number; volume: number }>> = {};
+    for (const symbol of this.config.symbols) {
+      try {
+        const candles = await this.store.getRecentCandles(symbol, this.config.interval, 72);
+        sparklines[symbol] = candles.map(c => ({
+          time: c.time,
+          close: c.close,
+          high: c.high,
+          low: c.low,
+          volume: c.volume,
+        }));
+      } catch { /* best-effort */ }
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const todaySummary = journal?.getDailySummary(today) ?? null;
+    const weekly = journal?.getMultiDaySummary(14) ?? [];
+    const recentTrades = journal?.getRecent(50) ?? [];
+    const totalTrades = journal?.getTradeCount() ?? 0;
+
+    // Compute cumulative P&L from weekly data (for equity chart label)
+    let cumulativePnl = 0;
+    const equityCurve = (weekly as Array<{ date: string; netPnlUsd: number }>)
+      .slice()
+      .reverse()
+      .map(d => { cumulativePnl += d.netPnlUsd; return { date: d.date, cumPnl: cumulativePnl }; });
+
+    return {
+      uptime: this.runtime.dailyPnlEstimate, // overwritten below by caller
+      mode: this.config.mode,
+      exchange: this.config.exchange,
+      strategy: this.config.strategy,
+      interval: this.config.interval,
+      symbols: this.config.symbols,
+      killSwitch: this.config.killSwitch,
+      cash: this.snapshot.cashUsd,
+      totalEquityUsd,
+      unrealizedPnlUsd: this.snapshot.unrealizedPnlUsd,
+      realizedPnlUsd: this.snapshot.realizedPnlUsd,
+      positions,
+      lastCandleTime: base.lastCandleTime ?? null,
+      sentiment: base.sentiment ?? null,
+      marketOverview: base.marketOverview ?? null,
+      trailingStops: base.trailingStops ?? null,
+      risk: {
+        maxDailyLossUsd: this.config.risk.maxDailyLossUsd,
+        maxPositionUsd: this.config.risk.maxPositionUsd,
+        maxOpenPositions: this.config.risk.maxOpenPositions,
+        cooldownMinutes: this.config.risk.cooldownMinutes,
+        dailyPnlEstimate: this.snapshot.realizedPnlUsd + this.snapshot.unrealizedPnlUsd,
+      },
+      today: todaySummary,
+      weekly,
+      equityCurve,
+      recentTrades,
+      allTime: { totalTrades },
+      sparklines,
+    };
   }
 
   /**
@@ -207,9 +348,9 @@ export class TradingLoops {
       // --- Process trailing stops first ---
       await this.processTrailingStops(symbol, ticker.last, candles);
       
-      // --- Fetch multi-timeframe data if using advanced composite strategy ---
+      // --- Fetch multi-timeframe data for strategies that support it ---
       let mtfResult;
-      if (this.strategy.name === 'advanced_composite') {
+      if (this.strategy.name === 'advanced_composite' || this.strategy.name === 'regime_aware') {
         mtfResult = await this.fetchMultiTimeframeAnalysis(symbol);
       }
 

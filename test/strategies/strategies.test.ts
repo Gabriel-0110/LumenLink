@@ -41,9 +41,9 @@ describe('strategy selector', () => {
     expect(strategy.name).toBe('smart_dca');
   });
 
-  it('defaults to advanced composite for unknown strategy', () => {
+  it('defaults to regime_aware composite for unknown strategy', () => {
     const strategy = createStrategy('unknown_strategy');
-    expect(strategy.name).toBe('advanced_composite');
+    expect(strategy.name).toBe('regime_aware');
   });
 });
 

@@ -1,11 +1,19 @@
 import { clamp } from '../core/validation.js';
 
+/**
+ * Convex confidence → position size scaling.
+ * Uses power of 1.5 so low-confidence signals receive disproportionately less capital.
+ * Examples (maxPositionUsd=1000):
+ *   confidence 0.3 → $164 (vs $300 linear)
+ *   confidence 0.6 → $465 (vs $600 linear)
+ *   confidence 0.9 → $855 (vs $900 linear)
+ */
 export const computePositionUsd = (
   confidence: number,
   maxPositionUsd: number,
   floorUsd = 25
 ): number => {
-  const scaled = maxPositionUsd * clamp(confidence, 0, 1);
+  const scaled = maxPositionUsd * Math.pow(clamp(confidence, 0, 1), 1.5);
   return Math.max(floorUsd, scaled);
 };
 

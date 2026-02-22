@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 import type { AppConfig } from '../config/types.js';
 import type { Logger } from '../core/logger.js';
 import type { Metrics } from '../core/metrics.js';
-import type { Order, Position, Signal, Ticker } from '../core/types.js';
+import type { Order, Position, RiskDecision, Signal, Ticker } from '../core/types.js';
 import { computePositionUsd } from '../risk/positionSizing.js';
 import type { KillSwitch } from './killSwitch.js';
 import { LiveBroker } from './liveBroker.js';
@@ -42,8 +42,10 @@ export class OrderManager {
     signal: Signal;
     ticker: Ticker;
     idempotencyKey?: string;
+    /** Pass the RiskDecision to use ATR-computed position sizing when available. */
+    riskDecision?: RiskDecision;
   }): Promise<Order | undefined> {
-    const { symbol, signal, ticker } = input;
+    const { symbol, signal, ticker, riskDecision } = input;
     if (signal.action === 'HOLD') return undefined;
 
     // Check kill switch
@@ -66,7 +68,8 @@ export class OrderManager {
       return existing;
     }
 
-    const targetUsd = computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd);
+    // Use ATR-computed size from RiskDecision when available, else convex confidence scaling
+    const targetUsd = riskDecision?.positionSizeUsd ?? computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd);
     const quantity = Math.max(0.000001, targetUsd / Math.max(ticker.last, 1));
 
     const orderReq: AdvancedOrderRequest = {

@@ -30,7 +30,7 @@ const rawSchema = z.object({
   EXCHANGE: z.enum(['coinbase', 'binance', 'bybit']).default('coinbase'),
   SYMBOLS: z.string().optional(),
   INTERVAL: z.string().default('1h'),
-  STRATEGY: z.enum(['ema_crossover', 'rsi_mean_reversion', 'composite', 'advanced_composite', 'grid_trading', 'smart_dca']).default('rsi_mean_reversion'),
+  STRATEGY: z.enum(['ema_crossover', 'rsi_mean_reversion', 'composite', 'advanced_composite', 'grid_trading', 'smart_dca', 'regime_aware']).default('regime_aware'),
 
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   ALLOW_LIVE_TRADING: z.string().optional(),

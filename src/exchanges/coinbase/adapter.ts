@@ -43,8 +43,7 @@ export class CoinbaseAdapter implements ExchangeAdapter {
   async getTicker(symbol: string): Promise<Ticker> {
     const path = coinbaseEndpoints.product(symbol);
     const headers = buildCoinbaseHeaders(this.auth, 'GET', path, '');
-    const data = await getJson<{ product: CoinbaseProduct }>(createCoinbaseClient(), path, headers);
-    const product = data.product;
+    const product = await getJson<CoinbaseProduct>(createCoinbaseClient(), path, headers);
     const bid = Number(product.best_bid ?? product.price);
     const ask = Number(product.best_ask ?? product.price);
     return {

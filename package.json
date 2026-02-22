@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "paper": "MODE=paper tsx src/index.ts",
+    "coinbase:smoke": "tsx src/coinbaseSmoke.ts",
     "backtest": "tsx src/backtester/run.ts",
     "backtest:history": "tsx src/backtester/history.ts",
     "backtest:compare": "tsx src/backtester/compare.ts",

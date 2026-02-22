@@ -5,6 +5,7 @@ import { CompositeExampleStrategy } from './compositeExample.js';
 import { AdvancedCompositeStrategy } from './advancedComposite.js';
 import { GridTradingStrategy } from './gridTrading.js';
 import { SmartDCAStrategy } from './smartDCA.js';
+import { RegimeAwareCompositeStrategy } from './regimeAwareComposite.js';
 
 export function createStrategy(name: string): Strategy {
   switch (name) {
@@ -20,8 +21,10 @@ export function createStrategy(name: string): Strategy {
       return new GridTradingStrategy();
     case 'smart_dca':
       return new SmartDCAStrategy();
+    case 'regime_aware':
+      return new RegimeAwareCompositeStrategy();
     default:
-      // Default to best strategy for unknown strategy names
-      return new AdvancedCompositeStrategy();
+      // Default to regime-aware composite — best overall strategy
+      return new RegimeAwareCompositeStrategy();
   }
 }

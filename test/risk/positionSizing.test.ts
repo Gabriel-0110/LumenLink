@@ -2,9 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { computePositionUsd, computePositionUsdATR } from '../../src/risk/positionSizing.js';
 
 describe('computePositionUsd', () => {
-  it('scales position by confidence', () => {
+  it('scales position by confidence using convex (power 1.5) curve', () => {
+    // Full confidence → full size
     expect(computePositionUsd(1.0, 250)).toBe(250);
-    expect(computePositionUsd(0.5, 250)).toBe(125);
+    // 0.5 confidence → 250 * 0.5^1.5 ≈ 88.39 (less than linear 125 — intentional penalty)
+    expect(computePositionUsd(0.5, 250)).toBeCloseTo(88.39, 1);
+    // Low-confidence signals receive disproportionately less capital
+    expect(computePositionUsd(0.5, 250)).toBeLessThan(125);
   });
 
   it('respects floor', () => {

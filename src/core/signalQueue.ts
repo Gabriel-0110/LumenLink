@@ -83,6 +83,7 @@ export class RedisSignalQueue implements SignalQueue {
   private async getClient(): Promise<any> {
     if (this.client) return this.client;
     try {
+      // @ts-expect-error — redis is an optional runtime dep; types not installed
       const { createClient } = await import('redis');
       this.client = createClient({ url: this.redisUrl });
       this.client.on('error', (err: Error) => console.error('Redis error:', err.message));

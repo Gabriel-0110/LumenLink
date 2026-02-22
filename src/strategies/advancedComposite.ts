@@ -45,6 +45,11 @@ interface IndicatorSnapshot {
 
 export class AdvancedCompositeStrategy implements Strategy {
   readonly name = 'advanced_composite';
+  private readonly minScoreThreshold: number;
+
+  constructor(config: { minScoreThreshold?: number } = {}) {
+    this.minScoreThreshold = config.minScoreThreshold ?? 2;
+  }
 
   onCandle(_candle: Candle, context: StrategyContext): Signal {
     const { candles, mtfResult } = context;
@@ -58,11 +63,34 @@ export class AdvancedCompositeStrategy implements Strategy {
       return { action: 'HOLD', confidence: 0.1, reason: 'Indicator computation failed' };
     }
 
-    const { score, reasons } = this.scoreSetup(snap, candles, mtfResult);
+    const { score: rawScore, reasons } = this.scoreSetup(snap, candles, mtfResult);
+    let score = rawScore;
+
+    // ── Fear & Greed sentiment modifier ────────────────────────────────
+    // Extreme Greed tops correlate with local peaks; Extreme Fear with bottoms.
+    const fearGreed = context.sentiment?.fearGreedIndex;
+    if (fearGreed !== undefined) {
+      if (fearGreed > 80 && score > 0) {
+        // Extreme Greed: dampen bullish bias by up to 1.5 points
+        const dampening = Math.min(1.5, ((fearGreed - 80) / 20) * 1.5);
+        score = Math.max(0, score - dampening);
+        reasons.push(`Extreme Greed (F&G:${fearGreed}) −1.5 dampens bullish`);
+      } else if (fearGreed < 20 && score < 0) {
+        // Extreme Fear: dampen bearish bias by up to 1.5 points
+        const dampening = Math.min(1.5, ((20 - fearGreed) / 20) * 1.5);
+        score = Math.min(0, score + dampening);
+        reasons.push(`Extreme Fear (F&G:${fearGreed}) +1.5 dampens bearish`);
+      } else if (fearGreed <= 25) {
+        score += 0.5; reasons.push(`Fear zone (F&G:${fearGreed}) +0.5`);
+      } else if (fearGreed >= 75) {
+        score -= 0.5; reasons.push(`Greed zone (F&G:${fearGreed}) −0.5`);
+      }
+      score = Math.round(score * 10) / 10;
+    }
 
     const absScore = Math.abs(score);
-    if (absScore < 2) {
-      return { action: 'HOLD', confidence: 0.3, reason: `Score ${score.toFixed(1)} (neutral): ${reasons.join('; ')}` };
+    if (absScore < this.minScoreThreshold) {
+      return { action: 'HOLD', confidence: 0.3, reason: `Score ${score.toFixed(1)} (below threshold ${this.minScoreThreshold}): ${reasons.join('; ')}` };
     }
 
     // Apply MTF confidence adjustment
@@ -101,14 +129,14 @@ export class AdvancedCompositeStrategy implements Strategy {
       // RSI
       const rsi = last(RSI.calculate({ values: closes, period: 14 }));
 
-      // MACD
+      // MACD (standard EMA smoothing for both oscillator and signal line)
       const macdArr = MACD.calculate({
         values: closes,
         fastPeriod: 12,
         slowPeriod: 26,
         signalPeriod: 9,
-        SimpleMAOscillator: true,
-        SimpleMASignal: true,
+        SimpleMAOscillator: false,
+        SimpleMASignal: false,
       });
       const macdLatest = last(macdArr);
 

@@ -53,7 +53,9 @@ const rawSchema = z.object({
   ALERT_TELEGRAM_CHAT_ID: z.string().optional(),
   ALERT_DISCORD_ENABLED: z.string().optional(),
 
+  SECRETS_PROVIDER: z.enum(['env', '1password', 'op', 'aws']).optional(),
   USE_AWS_SECRETS_MANAGER: z.string().optional(),
+  OP_VAULT: z.string().default('Trading'),
   AWS_REGION: z.string().default('us-east-1'),
 
   // Core trading API secrets

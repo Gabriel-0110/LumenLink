@@ -2,6 +2,9 @@ import http from 'node:http';
 import { loadConfig } from './config/load.js';
 import { JsonLogger } from './core/logger.js';
 import { InMemoryMetrics } from './core/metrics.js';
+import { PrometheusMetrics } from './core/prometheusMetrics.js';
+import { TradeJournal } from './data/tradeJournal.js';
+import { AlertMultiplexer, alertTemplates } from './alerts/alertTemplates.js';
 import { InMemoryStore } from './data/inMemoryStore.js';
 import { SqliteStore } from './data/sqliteStore.js';
 import { MarketDataService } from './data/marketDataService.js';
@@ -52,7 +55,8 @@ class UnavailableExchangeAdapter implements ExchangeAdapter {
 const main = async (): Promise<void> => {
   const config = loadConfig();
   const logger = new JsonLogger(config.logLevel);
-  const metrics = new InMemoryMetrics();
+  const metrics = config.nodeEnv === 'test' ? new InMemoryMetrics() : new PrometheusMetrics();
+  const journal = config.nodeEnv === 'test' ? undefined : new TradeJournal();
 
   const secrets = buildSecretsProvider(config);
   let telegramToken: string | undefined;
@@ -231,6 +235,38 @@ const main = async (): Promise<void> => {
       };
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify(body));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/metrics') {
+      if (metrics instanceof PrometheusMetrics) {
+        res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+        res.end(metrics.render());
+      } else {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify((metrics as InMemoryMetrics).snapshot()));
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/dashboard') {
+      const status = loops.getStatus();
+      const today = new Date().toISOString().slice(0, 10);
+      const dailySummary = journal?.getDailySummary(today);
+      const recentTrades = journal?.getRecent(20);
+      const body = {
+        uptime: Math.floor((Date.now() - startedAt) / 1000),
+        mode: config.mode,
+        exchange: config.exchange,
+        strategy: strategy.name,
+        symbols: config.symbols,
+        status,
+        today: dailySummary ?? null,
+        recentTrades: recentTrades ?? [],
+        metricsSnapshot: 'snapshot' in metrics ? (metrics as any).snapshot() : null,
+      };
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(body, null, 2));
       return;
     }
 

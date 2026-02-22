@@ -53,7 +53,10 @@ export class RegimeAwareCompositeStrategy implements Strategy {
 
     // ── 2. Ranging → mean reversion is more appropriate ───────
     if (regime.regime === 'ranging') {
-      const signal = this.rangingMeanRev.onCandle(candle, context);
+      // Use AdvancedComposite with a moderate threshold in ranging markets —
+      // RSI mean reversion only fires at RSI extremes (<38 / >62) which rarely
+      // occur on 5m BTC. AdvancedComposite uses 10+ indicators and fires more often.
+      const signal = this.trendingNormal.onCandle(candle, context);
       return {
         ...signal,
         reason: `[Ranging regime, ADX:${regime.adx.toFixed(0)}] ${signal.reason}`,

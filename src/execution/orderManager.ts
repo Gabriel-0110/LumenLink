@@ -70,7 +70,9 @@ export class OrderManager {
 
     // Use ATR-computed size from RiskDecision when available, else convex confidence scaling
     const targetUsd = riskDecision?.positionSizeUsd ?? computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd);
-    const quantity = Math.max(0.000001, targetUsd / Math.max(ticker.last, 1));
+    // Floor to 8 decimal places — Coinbase BTC-USD base_increment = 0.00000001
+    const rawQty = Math.max(0.000001, targetUsd / Math.max(ticker.last, 1));
+    const quantity = Math.floor(rawQty * 1e8) / 1e8;
 
     const orderReq: AdvancedOrderRequest = {
       symbol,

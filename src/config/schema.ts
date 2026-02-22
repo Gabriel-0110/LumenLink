@@ -40,6 +40,7 @@ const rawSchema = z.object({
   RISK_MAX_POSITION_USD: z.string().optional(),
   RISK_MAX_OPEN_POSITIONS: z.coerce.number().int().positive().default(2),
   RISK_COOLDOWN_MINUTES: z.coerce.number().int().nonnegative().default(15),
+  RISK_DEPLOY_PERCENT: z.string().optional(),
 
   GUARD_MAX_SPREAD_BPS: z.string().optional(),
   GUARD_MAX_SLIPPAGE_BPS: z.string().optional(),
@@ -97,6 +98,7 @@ export const configSchema = rawSchema.transform((raw) => {
   const symbols = parseSymbols(raw.SYMBOLS, raw.EXCHANGE === 'binance' || raw.EXCHANGE === 'bybit' ? ['BTC/USDT', 'ETH/USDT'] : ['BTC-USD', 'ETH-USD']);
   const maxDailyLossUsd = parseNumber(raw.RISK_MAX_DAILY_LOSS_USD, 150);
   const maxPositionUsd = parseNumber(raw.RISK_MAX_POSITION_USD, 250);
+  const deployPercent = Math.min(1, Math.max(0.1, parseNumber(raw.RISK_DEPLOY_PERCENT, 50) / 100));
   const maxSpreadBps = parseNumber(raw.GUARD_MAX_SPREAD_BPS, 25);
   const maxSlippageBps = parseNumber(raw.GUARD_MAX_SLIPPAGE_BPS, 20);
   const minVolume = parseNumber(raw.GUARD_MIN_VOLUME, 0);
@@ -129,7 +131,8 @@ export const configSchema = rawSchema.transform((raw) => {
       maxDailyLossUsd,
       maxPositionUsd,
       maxOpenPositions: raw.RISK_MAX_OPEN_POSITIONS,
-      cooldownMinutes: raw.RISK_COOLDOWN_MINUTES
+      cooldownMinutes: raw.RISK_COOLDOWN_MINUTES,
+      deployPercent,
     },
 
     guards: {

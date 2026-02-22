@@ -89,6 +89,13 @@ export class TradingLoops {
     try {
       const balances = await exchange.getBalances();
 
+      // Debug: log all balances with non-zero values
+      const nonZero = balances.filter(b => b.free > 0 || b.locked > 0);
+      this.logger.info('exchange balances', {
+        total: balances.length,
+        nonZero: nonZero.map(b => ({ asset: b.asset, free: b.free, locked: b.locked })),
+      });
+
       // Seed cash from USD / USDC balance
       const usd  = balances.find((b) => b.asset === 'USD')?.free  ?? 0;
       const usdc = balances.find((b) => b.asset === 'USDC')?.free ?? 0;
@@ -390,7 +397,28 @@ export class TradingLoops {
         continue;
       }
 
-      const order = await this.orderManager.submitSignal({ symbol, signal, ticker });
+      let order: Awaited<ReturnType<typeof this.orderManager.submitSignal>>;
+      try {
+        order = await this.orderManager.submitSignal({
+          symbol,
+          signal,
+          ticker,
+          currentPosition: this.snapshot.openPositions.find(p => p.symbol === symbol),
+          availableCashUsd: this.snapshot.cashUsd,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('INSUFFICIENT_FUND')) {
+          this.logger.warn('order rejected — insufficient funds', {
+            symbol, action: signal.action, reason: msg,
+          });
+        } else {
+          this.logger.error('order submission failed', {
+            symbol, action: signal.action, error: msg,
+          });
+        }
+        continue;
+      }
       if (order) {
         this.lastSignalTime.set(cooldownKey, { action: signal.action, timestamp: Date.now() });
         this.applyOrderToSnapshot(order.symbol, order.side, order.filledQuantity, order.avgFillPrice ?? ticker.last);

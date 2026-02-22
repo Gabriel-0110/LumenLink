@@ -56,7 +56,10 @@ const main = async (): Promise<void> => {
   const config = loadConfig();
   const logger = new JsonLogger(config.logLevel);
   const metrics = config.nodeEnv === 'test' ? new InMemoryMetrics() : new PrometheusMetrics();
-  const journal = config.nodeEnv === 'test' ? undefined : new TradeJournal();
+  const dbPath = config.mode === 'paper' ? './data/paper-runtime.sqlite' : './data/runtime.sqlite';
+  // Paper shares candle store with live (market data is read-only), separate journal for trades
+  const candleDbPath = './data/runtime.sqlite';
+  const journal = config.nodeEnv === 'test' ? undefined : new TradeJournal(dbPath);
 
   const secrets = buildSecretsProvider(config);
   let telegramToken: string | undefined;
@@ -129,7 +132,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const store = config.nodeEnv === 'test' ? new InMemoryStore() : new SqliteStore();
+  const store = config.nodeEnv === 'test' ? new InMemoryStore() : new SqliteStore(candleDbPath);
   const marketData = new MarketDataService(exchange, store, logger, metrics);
   const riskEngine = new RiskEngine(config);
   const orderState = new OrderState(store);
@@ -197,7 +200,12 @@ const main = async (): Promise<void> => {
   // Seed snapshot with real exchange balances so pre-existing holdings
   // (e.g. BTC already in account) are visible to the risk engine at start,
   // allowing SELL signals to fire without being blocked as 'phantom sells'.
-  await loops.hydrateFromExchange(exchange);
+  // Paper mode keeps the $10k default cash and no seeded positions.
+  if (config.mode === 'live') {
+    await loops.hydrateFromExchange(exchange);
+  } else {
+    logger.info('paper mode — starting with simulated $10,000 cash, no seeded positions');
+  }
 
   const scheduler = new Scheduler(logger);
   scheduler.add('market-data', config.data.pollingMs, async () => loops.marketDataLoop());

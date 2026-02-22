@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { configSchema } from './schema.js';
 import type { AppConfig } from './types.js';
 
-dotenv.config();
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || '.env' });
 
 export const loadConfig = (): AppConfig => {
   const parsed = configSchema.safeParse(process.env);

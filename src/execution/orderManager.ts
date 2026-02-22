@@ -44,8 +44,12 @@ export class OrderManager {
     idempotencyKey?: string;
     /** Pass the RiskDecision to use ATR-computed position sizing when available. */
     riskDecision?: RiskDecision;
+    /** Current open position for this symbol (used to size SELL orders correctly). */
+    currentPosition?: Position;
+    /** Available cash (USD) — used to cap BUY orders so they never exceed balance. */
+    availableCashUsd?: number;
   }): Promise<Order | undefined> {
-    const { symbol, signal, ticker, riskDecision } = input;
+    const { symbol, signal, ticker, riskDecision, currentPosition, availableCashUsd } = input;
     if (signal.action === 'HOLD') return undefined;
 
     // Check kill switch
@@ -68,11 +72,48 @@ export class OrderManager {
       return existing;
     }
 
-    // Use ATR-computed size from RiskDecision when available, else convex confidence scaling
-    const targetUsd = riskDecision?.positionSizeUsd ?? computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd);
-    // Floor to 8 decimal places — Coinbase BTC-USD base_increment = 0.00000001
-    const rawQty = Math.max(0.000001, targetUsd / Math.max(ticker.last, 1));
-    const quantity = Math.floor(rawQty * 1e8) / 1e8;
+    let quantity: number;
+
+    if (side === 'sell' && currentPosition && currentPosition.quantity > 0) {
+      // SELL: sell a fraction of the position (deployPercent) so we keep some BTC
+      const deployPct = this.config.risk.deployPercent ?? 0.5;
+      const sellQty = currentPosition.quantity * deployPct;
+      quantity = Math.floor(sellQty * 1e8) / 1e8;
+      this.logger.info('SELL order sized to position fraction', {
+        symbol,
+        positionQty: currentPosition.quantity,
+        deployPercent: (deployPct * 100).toFixed(0) + '%',
+        orderQty: quantity,
+      });
+    } else {
+      // BUY: use ATR-computed size from RiskDecision, or convex confidence scaling
+      let targetUsd = riskDecision?.positionSizeUsd ?? computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd);
+
+      // Cap to deployable fraction of available cash so we always keep reserves
+      if (availableCashUsd !== undefined && availableCashUsd >= 0) {
+        const deployPct = this.config.risk.deployPercent ?? 0.5;
+        // Reserve 0.5% for exchange fees, then apply deploy fraction
+        const usable = availableCashUsd * 0.995 * deployPct;
+        if (usable < 1) {
+          this.logger.warn('BUY skipped — available cash below $1', {
+            symbol, availableCashUsd: availableCashUsd.toFixed(2),
+          });
+          return undefined;
+        }
+        if (targetUsd > usable) {
+          this.logger.info('BUY size capped to available cash', {
+            symbol,
+            originalUsd: targetUsd.toFixed(2),
+            cappedUsd: usable.toFixed(2),
+          });
+          targetUsd = usable;
+        }
+      }
+
+      // Floor to 8 decimal places — Coinbase BTC-USD base_increment = 0.00000001
+      const rawQty = Math.max(0.000001, targetUsd / Math.max(ticker.last, 1));
+      quantity = Math.floor(rawQty * 1e8) / 1e8;
+    }
 
     const orderReq: AdvancedOrderRequest = {
       symbol,

@@ -1,0 +1,46 @@
+# Systemd service file for LumenLink
+# Install: sudo cp infra/lumenlink.service /etc/systemd/system/
+# Enable:  sudo systemctl enable lumenlink
+# Start:   sudo systemctl start lumenlink
+# Logs:    journalctl -u lumenlink -f
+
+[Unit]
+Description=LumenLink Crypto Trading Bot
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=lumenlink
+Group=lumenlink
+WorkingDirectory=/opt/lumenlink
+ExecStart=/usr/bin/node dist/src/index.js
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Environment
+EnvironmentFile=/opt/lumenlink/.env
+Environment=NODE_ENV=production
+Environment=DB_PATH=/opt/lumenlink/data/runtime.sqlite
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/lumenlink/data
+PrivateTmp=true
+PrivateDevices=true
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=100%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lumenlink
+
+[Install]
+WantedBy=multi-user.target

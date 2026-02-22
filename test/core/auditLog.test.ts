@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AuditLog } from '../../src/core/auditLog.js';
 import * as fs from 'node:fs';
 
-const TEST_DB = './test-audit.sqlite';
+const TEST_DB = './data/test-audit.sqlite';
 
 describe('AuditLog', () => {
   let audit: AuditLog;

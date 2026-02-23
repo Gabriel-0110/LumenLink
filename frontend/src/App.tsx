@@ -18,6 +18,14 @@ import {
   ExecutionAlerts,
   NotificationPrefs,
 } from './components/execution/pages';
+import { StrategyLayout } from './components/strategy/StrategyLayout';
+import {
+  StrategyOverview,
+  MarketStatePage,
+  DecisionsPage,
+  AttributionPage,
+  GovernancePage,
+} from './components/strategy/pages';
 import { useDashboardStore } from './store/dashboardStore';
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: unknown; resetErrorBoundary: () => void }) {
@@ -102,7 +110,14 @@ export default function App() {
                 <Route path="/trading" element={<Navigate to="/execution" replace />} />
                 <Route path="/risk" element={<Navigate to="/execution/controls" replace />} />
 
-                <Route path="/strategy" element={<PlaceholderPage title="Strategy" />} />
+                {/* Strategy section with nested sub-pages */}
+                <Route path="/strategy" element={<StrategyLayout />}>
+                  <Route index element={<StrategyOverview />} />
+                  <Route path="market" element={<MarketStatePage />} />
+                  <Route path="decisions" element={<DecisionsPage />} />
+                  <Route path="attribution" element={<AttributionPage />} />
+                  <Route path="governance" element={<GovernancePage />} />
+                </Route>
                 <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
                 <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
               </Routes>

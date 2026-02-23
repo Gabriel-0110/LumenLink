@@ -64,6 +64,19 @@ export interface SentimentEvent {
   timestamp: number;
 }
 
+export interface StrategyDecisionEvent {
+  cycleId: string;
+  symbol: string;
+  regime: string;
+  outcome: string;
+  action: string;
+  confidence: number;
+  expectedEdgeBps: number;
+  overlayMode: string;
+  blockers: string[];
+  timestamp: number;
+}
+
 // ── Channel map ──────────────────────────────────────────────────────────────
 
 export interface ChannelPayloads {
@@ -73,10 +86,11 @@ export interface ChannelPayloads {
   alerts: AlertEvent;
   metrics: MetricsEvent;
   sentiment: SentimentEvent;
+  strategy: StrategyDecisionEvent;
 }
 
 export type Channel = keyof ChannelPayloads;
-export const ALL_CHANNELS: Channel[] = ['price', 'trades', 'positions', 'alerts', 'metrics', 'sentiment'];
+export const ALL_CHANNELS: Channel[] = ['price', 'trades', 'positions', 'alerts', 'metrics', 'sentiment', 'strategy'];
 
 // ── EventBus class ───────────────────────────────────────────────────────────
 

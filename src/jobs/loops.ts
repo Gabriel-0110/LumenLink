@@ -22,6 +22,9 @@ import type { FillReconciler } from '../execution/fillReconciler.js';
 import type { TradeGatekeeper } from '../risk/tradeGatekeeper.js';
 import type { HealthReport } from '../core/healthReport.js';
 import type { SignalLog } from '../data/signalLog.js';
+import type { StrategyEngine } from '../strategy/engine.js';
+import type { StrategyCycleOutput } from '../strategy/types.js';
+import { eventBus } from '../../backend/src/services/eventBus.js';
 import { ATR } from 'technicalindicators';
 
 export interface RuntimeState {
@@ -105,6 +108,12 @@ export class TradingLoops {
    */
   private signalLog?: SignalLog;
   setSignalLog(sl: SignalLog): void { this.signalLog = sl; }
+
+  /**
+   * Optional professional strategy engine — runs alongside legacy strategy in shadow mode.
+   */
+  private strategyEngine?: StrategyEngine;
+  setStrategyEngine(engine: StrategyEngine): void { this.strategyEngine = engine; }
 
   /**
    * Hydrate snapshot from InventoryManager (Phase 1A).
@@ -400,6 +409,54 @@ export class TradingLoops {
       if (!latest) continue;
 
       const ticker = await this.marketData.getTickerOrSynthetic(symbol);
+
+      // ── Professional Strategy Engine cycle (shadow/parallel alongside legacy) ──
+      if (this.strategyEngine) {
+        try {
+          const cycleOutput = this.strategyEngine.runCycle(
+            symbol,
+            candles,
+            ticker,
+            this.snapshot,
+            {
+              volatilityRegimeShift: false,
+              correlationSpike: false,
+              eventRiskWindow: false,
+            },
+            this.latestSentiment?.fearGreedIndex,
+            this.latestSentiment?.newsScore,
+          );
+
+          // Emit to EventBus for WebSocket clients
+          eventBus.emit('strategy', {
+            cycleId: cycleOutput.cycleId,
+            symbol: cycleOutput.symbol,
+            regime: cycleOutput.marketState.regime,
+            outcome: cycleOutput.decision.outcome,
+            action: cycleOutput.decision.action,
+            confidence: cycleOutput.decision.confidence,
+            expectedEdgeBps: cycleOutput.decision.expectedEdgeBps,
+            overlayMode: cycleOutput.overlay.mode,
+            blockers: cycleOutput.decision.blockers,
+            timestamp: cycleOutput.timestamp,
+          });
+
+          this.logger.info('strategy engine cycle', {
+            symbol,
+            cycleId: cycleOutput.cycleId,
+            regime: cycleOutput.marketState.regime,
+            outcome: cycleOutput.decision.outcome,
+            action: cycleOutput.decision.action,
+            confidence: cycleOutput.decision.confidence.toFixed(3),
+            edgeBps: cycleOutput.decision.expectedEdgeBps.toFixed(1),
+            overlay: cycleOutput.overlay.mode,
+            blockers: cycleOutput.decision.blockers,
+            stage: this.strategyEngine.governance.getStage(),
+          });
+        } catch (err) {
+          this.logger.warn('strategy engine cycle failed', { symbol, err: String(err) });
+        }
+      }
       
       // --- Process trailing stops first ---
       await this.processTrailingStops(symbol, ticker.last, candles);

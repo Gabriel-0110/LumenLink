@@ -33,6 +33,7 @@ import { DiscordAlertService } from './alerts/discord.js';
 import { TelegramAlertService } from './alerts/telegram.js';
 import { buildSecretsProvider } from './secrets/provider.js';
 import { TradingLoops } from './jobs/loops.js';
+import { StrategyEngine } from './strategy/engine.js';
 import { InventoryManager } from './execution/inventoryManager.js';
 import { FillReconciler } from './execution/fillReconciler.js';
 import { TradeGatekeeper } from './risk/tradeGatekeeper.js';
@@ -302,6 +303,17 @@ const main = async (): Promise<void> => {
     healthReport,
   );
 
+  // ── Professional Strategy Engine (shadow mode — observes alongside legacy strategy) ──
+  const strategyEngine = new StrategyEngine({
+    intervalMs: config.strategyIntervalMs,
+    feeRateBps: config.gatekeeper.feeRateBps,
+  });
+  loops.setStrategyEngine(strategyEngine);
+  logger.info('strategy engine initialized', {
+    stage: strategyEngine.governance.getStage(),
+    version: strategyEngine.governance.toJSON().version,
+  });
+
   // ── Phase 1A: Coinbase is source of truth on startup ──
   // Pull balances, fills, open orders and rebuild local state from exchange.
   // Paper mode keeps the $10k default cash and no seeded positions.
@@ -445,6 +457,7 @@ const main = async (): Promise<void> => {
       alertStore,
       notificationPrefs,
       notificationRouter,
+      strategyEngine,
       onConfigUpdate: (patch) => {
         const applied: Record<string, unknown> = {};
         const rejected: string[] = [];

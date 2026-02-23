@@ -22,6 +22,7 @@ import type { Strategy } from '../../../src/strategies/interface.js';
 import type { NotificationPrefsStore } from '../../../src/alerts/notificationPrefsStore.js';
 import type { NotificationRouter } from '../../../src/alerts/notificationRouter.js';
 import type { NotificationPrefs, AlertSeverity, EventTypeOverride } from '../../../src/alerts/types.js';
+import type { StrategyEngine } from '../../../src/strategy/engine.js';
 import { createAuthMiddleware, type AuthConfig } from '../middleware/auth.js';
 import { createCorsMiddleware, type CorsConfig } from '../middleware/cors.js';
 import { eventBus } from '../services/eventBus.js';
@@ -54,6 +55,8 @@ export interface RouteContext {
   onPositionClose?: (symbol: string) => Promise<boolean>;
   /** Callback to cancel all open orders. Returns number cancelled. */
   onCancelAll?: () => Promise<number>;
+  /** Strategy engine instance for the strategy session UI. */
+  strategyEngine?: StrategyEngine;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -702,6 +705,126 @@ const routes: Route[] = [
       const merged = ctx.notificationPrefs.patch(body);
       ctx.logger.info('notification preferences updated via API');
       json(res, merged);
+    },
+  },
+
+  // ── Strategy Engine ──────────────────────────────────────────────────────
+
+  {
+    method: 'GET',
+    path: '/api/strategy',
+    handler: (_req, res, ctx) => {
+      if (!ctx.strategyEngine) {
+        json(res, {
+          status: {
+            cycleCount: 0,
+            governance: {
+              version: '0.0.0', name: 'not_initialized', stage: 'shadow',
+              featureFlags: {}, parameters: {},
+              updatedAt: 0, changedBy: 'system', changeReason: 'Not initialized',
+            },
+            todayExpectancy: { trades: 0, avgEdgeBps: 0, winRate: 0 },
+            performanceByRegime: [],
+            blockerLeaderboard: [],
+            alphaPerformance: [],
+            recentDecisionCount: 0,
+          },
+          decisions: [],
+          marketStates: {},
+        });
+        return;
+      }
+
+      const engine = ctx.strategyEngine;
+      const status = engine.getStatus();
+      const decisions = engine.getRecentDecisions(100);
+
+      // Build market states map from recent decisions
+      const marketStates: Record<string, unknown> = {};
+      for (const d of decisions) {
+        marketStates[d.symbol] = d.marketState;
+      }
+
+      // Map decisions to API-friendly format
+      const mappedDecisions = decisions.map(d => ({
+        id: d.id,
+        symbol: d.symbol,
+        timestamp: d.timestamp,
+        outcome: d.outcome,
+        action: d.action,
+        confidence: d.confidence,
+        expectedEdgeBps: d.expectedEdgeBps,
+        blockers: d.blockers,
+        ensemble: {
+          direction: d.ensemble.direction,
+          confidence: d.ensemble.confidence,
+          expectedEdgeBps: d.ensemble.expectedEdgeBps,
+          expectedRiskBps: d.ensemble.expectedRiskBps,
+          edgeRatio: d.ensemble.edgeRatio,
+          consensusLevel: d.ensemble.consensusLevel,
+          dominantModel: d.ensemble.dominantModel,
+          votes: d.ensemble.votes.map(v => ({
+            modelId: v.modelId,
+            direction: v.direction,
+            confidence: v.confidence,
+            expectedReturnBps: v.expectedReturnBps,
+            expectedRiskBps: v.expectedRiskBps,
+            regime: v.regime,
+            weight: v.weight,
+            reason: v.reason,
+          })),
+        },
+        forecast: {
+          probabilityUp: d.forecast.probabilityUp,
+          probabilityDown: d.forecast.probabilityDown,
+          expectedReturnBps: d.forecast.expectedReturnBps,
+          exceedsCosts: d.forecast.exceedsCosts,
+          costBps: d.forecast.costBps,
+          calibrationScore: d.forecast.calibrationScore,
+        },
+        overlay: {
+          mode: d.overlay.mode,
+          sizeMultiplier: d.overlay.sizeMultiplier,
+          stopTightenBps: d.overlay.stopTightenBps,
+          edgeThresholdBoostBps: d.overlay.edgeThresholdBoostBps,
+          reasons: d.overlay.reasons,
+        },
+        tradePlan: d.tradePlan ? {
+          side: d.tradePlan.side,
+          sizing: {
+            notionalUsd: d.tradePlan.sizing.notionalUsd,
+            riskPercent: d.tradePlan.sizing.riskPercent,
+          },
+          exit: {
+            stopLossBps: d.tradePlan.exit.stopLossBps,
+            takeProfitBps: d.tradePlan.exit.takeProfitBps,
+          },
+          expectedPnlUsd: d.tradePlan.expectedPnlUsd,
+          rewardRiskRatio: d.tradePlan.rewardRiskRatio,
+        } : null,
+        explanation: d.explanation
+          ? {
+              summary: d.explanation,
+              topBlockers: d.blockers,
+              whatChanged: [],
+              riskNarrative: d.overlay.mode,
+              anomalies: d.marketState.microstructure.flags,
+            }
+          : {
+              summary: `${d.symbol}: ${d.outcome}`,
+              topBlockers: d.blockers,
+              whatChanged: [],
+              riskNarrative: d.overlay.mode,
+              anomalies: [],
+            },
+        marketState: d.marketState,
+      }));
+
+      json(res, {
+        status,
+        decisions: mappedDecisions,
+        marketStates,
+      });
     },
   },
 ];

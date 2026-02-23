@@ -300,7 +300,7 @@ const main = async (): Promise<void> => {
 
   const scheduler = new Scheduler(logger);
   scheduler.add('market-data', config.data.pollingMs, async () => loops.marketDataLoop());
-  scheduler.add('strategy', config.pollIntervalMs, async () => loops.strategyLoop());
+  scheduler.add('strategy', config.strategyIntervalMs, async () => loops.strategyLoop());
   if (config.mode === 'live') {
     scheduler.add('reconcile', Math.max(10_000, config.pollIntervalMs), async () => loops.reconciliationLoop());
     // Phase 1E: Full fill reconciliation every 5 minutes

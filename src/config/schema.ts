@@ -33,6 +33,7 @@ const rawSchema = z.object({
   STRATEGY: z.enum(['ema_crossover', 'rsi_mean_reversion', 'composite', 'advanced_composite', 'grid_trading', 'smart_dca', 'regime_aware']).default('regime_aware'),
 
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+  STRATEGY_INTERVAL_MS: z.coerce.number().int().positive().optional(),
   ALLOW_LIVE_TRADING: z.string().optional(),
   KILL_SWITCH: z.string().optional(),
   DRY_RUN: z.string().optional(),
@@ -133,6 +134,7 @@ export const configSchema = rawSchema.transform((raw) => {
     strategy: raw.STRATEGY,
 
     pollIntervalMs: raw.POLL_INTERVAL_MS,
+    strategyIntervalMs: raw.STRATEGY_INTERVAL_MS ?? raw.POLL_INTERVAL_MS,
     allowLiveTrading: parseBoolean(raw.ALLOW_LIVE_TRADING, false),
     killSwitch: parseBoolean(raw.KILL_SWITCH, true),
     dryRun: parseBoolean(raw.DRY_RUN, false),

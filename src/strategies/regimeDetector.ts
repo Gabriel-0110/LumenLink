@@ -130,13 +130,13 @@ export class RegimeDetector {
       confidence = Math.min(1, (atrRatio - this.atrSpikeThreshold) / 2);
       trendDirection = priceVsEma > 0 ? 1 : -1;
       details = `ATR spike ${atrRatio.toFixed(1)}x median. Dangerous conditions.`;
-    } else if (bbSqueeze && currentAdx < 20) {
+    } else if (bbSqueeze && currentAdx < 22) {
       // Low volatility + low trend = potential breakout setup
       regime = 'breakout';
       confidence = 0.5 + (1 - bbWidth / avgBBWidth) * 0.3;
       trendDirection = 0;
       details = `BB squeeze detected (width ${(bbWidth * 100).toFixed(1)}% vs avg ${(avgBBWidth * 100).toFixed(1)}%). Breakout imminent.`;
-    } else if (currentAdx > 20) { // lowered from 25 — 5m ADX rarely hits 25
+    } else if (currentAdx > 22) { // raised from 20 — ADX 20 is noise on 5m candles
       // Strong trend
       if (priceVsEma > 0.003 && currentRsi > 42) {
         regime = 'trending_up';

@@ -13,10 +13,7 @@ import { toBasicOrderRequest } from './orderTypes.js';
 import { PaperBroker } from './paperBroker.js';
 import type { PositionStateMachine } from './positionStateMachine.js';
 import type { RetryExecutor } from './retryExecutor.js';
-import { TrailingStopManager, type TrailingStopConfig } from './trailingStops.js';
-
 export class OrderManager {
-  private readonly trailingStops = new TrailingStopManager();
   private runtimeBlockReason?: string;
 
   constructor(
@@ -242,76 +239,4 @@ export class OrderManager {
     this.metrics.increment('orders.cancel_all', openOrders.length);
   }
 
-  // Trailing Stop Management
-  addTrailingStop(position: Position, config: TrailingStopConfig, currentPrice: number): void {
-    const stop = this.trailingStops.addTrailingStop(position, config, currentPrice);
-    this.logger.info('trailing stop added', {
-      symbol: config.symbol,
-      initialStopPrice: stop.currentStopPrice,
-      trailPercent: config.trailPercent
-    });
-    this.metrics.increment('trailing_stops.added');
-  }
-
-  async processTrailingStops(ticker: Ticker): Promise<Order[]> {
-    const triggeredSymbols = this.trailingStops.updateTrailingStops(ticker);
-    const orders: Order[] = [];
-
-    for (const symbol of triggeredSymbols) {
-      const stop = this.trailingStops.getTrailingStop(symbol);
-      if (!stop) continue;
-
-      const side: 'buy' | 'sell' = stop.side === 'buy' ? 'sell' : 'buy';
-      const clientOrderId = this.createClientOrderId(symbol, side);
-      const quantity = 0.001;
-
-      const orderReq = {
-        symbol,
-        side,
-        type: 'market' as const,
-        quantity,
-        clientOrderId
-      };
-
-      try {
-        const order = this.config.mode === 'paper'
-          ? await this.paperBroker.place(orderReq, ticker, this.config.guards.maxSlippageBps)
-          : await this.liveBroker.place(orderReq);
-
-        await this.orderState.upsert(order);
-        orders.push(order);
-
-        this.logger.info('trailing stop triggered', {
-          symbol,
-          stopPrice: stop.currentStopPrice,
-          currentPrice: ticker.last,
-          orderId: order.orderId
-        });
-
-        this.metrics.increment('trailing_stops.triggered');
-        this.trailingStops.removeTrailingStop(symbol);
-      } catch (error) {
-        this.logger.error('failed to execute trailing stop order', {
-          symbol,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        this.metrics.increment('trailing_stops.failed');
-      }
-    }
-
-    return orders;
-  }
-
-  removeTrailingStop(symbol: string): boolean {
-    const removed = this.trailingStops.removeTrailingStop(symbol);
-    if (removed) {
-      this.logger.info('trailing stop removed', { symbol });
-      this.metrics.increment('trailing_stops.removed');
-    }
-    return removed;
-  }
-
-  getTrailingStops() {
-    return this.trailingStops.getAllTrailingStops();
-  }
 }

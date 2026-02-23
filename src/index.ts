@@ -415,7 +415,7 @@ const main = async (): Promise<void> => {
 
   // ── Backend router (replaces monolithic inline handler) ──────────────────
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
+  const frontendDist = path.resolve(__dirname, '..', '..', 'frontend', 'dist');
   const hasFrontendBuild = fs.existsSync(path.join(frontendDist, 'index.html'));
 
   const MIME_TYPES: Record<string, string> = {

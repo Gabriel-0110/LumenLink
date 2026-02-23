@@ -24,7 +24,7 @@ export class RegimeAwareCompositeStrategy implements Strategy {
   private readonly regimeDetector = new RegimeDetector();
 
   // Pre-instantiated strategy variants with 5m-tuned score thresholds
-  private readonly trendingStrong = new AdvancedCompositeStrategy({ minScoreThreshold: 0.8 }); // was 1.5
+  private readonly trendingStrong = new AdvancedCompositeStrategy({ minScoreThreshold: 1.5 }); // restored — 0.8 fired on thin confluence
   private readonly trendingNormal = new AdvancedCompositeStrategy({ minScoreThreshold: 1.2 }); // was 2.0
   private readonly breakoutStrict = new AdvancedCompositeStrategy({ minScoreThreshold: 2.0 }); // was 3.5
   private readonly rangingMeanRev = new RsiMeanReversionStrategy(14, 30, 70);

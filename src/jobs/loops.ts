@@ -85,8 +85,8 @@ export class TradingLoops {
   ) {
     // Initialize trailing stop manager with config
     this.trailingStopManager = new TrailingStopManager({
-      activationProfitPercent: 1.5,  // Activate after 1.5% profit
-      trailPercent: 2.5,             // Trail 2.5% below highest price
+      activationProfitPercent: 0.8,  // Activate after 0.8% profit (lowered for 5m candles)
+      trailPercent: 1.5,             // Trail 1.5% below highest price
       atrMultiplier: 2.0             // Alternative: trail by ATR * 2.0
     });
     
@@ -410,7 +410,13 @@ export class TradingLoops {
         mtfResult = await this.fetchMultiTimeframeAnalysis(symbol);
       }
 
-      const rawSignal = this.strategy.onCandle(latest, { candles, symbol, mtfResult });
+      const rawSignal = this.strategy.onCandle(latest, {
+        candles, symbol, mtfResult,
+        sentiment: this.latestSentiment ? {
+          fearGreedIndex: this.latestSentiment.fearGreedIndex,
+          newsSentiment: this.latestSentiment.newsScore,
+        } : undefined,
+      });
 
       // Convert SELL→HOLD when flat (no position to sell) — avoids phantom sell deadlock
       const hasPosition = this.snapshot.openPositions.some((p) => p.symbol === symbol && p.quantity > 0);
@@ -436,7 +442,8 @@ export class TradingLoops {
         symbol,
         snapshot: this.snapshot,
         ticker,
-        nowMs: Date.now()
+        nowMs: Date.now(),
+        candles,
       });
 
       if (!decision.allowed) {
@@ -451,6 +458,24 @@ export class TradingLoops {
           symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
           strategy: this.config.strategy, outcome: 'risk_blocked',
           blockedBy: decision.blockedBy ?? null, riskReason: decision.reason,
+          edgeDataJson: null, timestamp: Date.now(),
+        });
+        continue;
+      }
+
+      // ── Signal cooldown (moved before gatekeeper to avoid unnecessary computation) ──
+      const cooldownKey = `${symbol}:${signal.action}`;
+      const lastExec = this.lastSignalTime.get(cooldownKey);
+      if (lastExec && Date.now() - lastExec.timestamp < TradingLoops.SIGNAL_COOLDOWN_MS) {
+        this.logger.info('Signal cooldown active', {
+          symbol,
+          action: signal.action,
+          lastExecMs: Date.now() - lastExec.timestamp
+        });
+        this.signalLog?.record({
+          symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
+          strategy: this.config.strategy, outcome: 'cooldown',
+          blockedBy: 'signal_cooldown', riskReason: `Cooldown: ${Date.now() - lastExec.timestamp}ms since last`,
           edgeDataJson: null, timestamp: Date.now(),
         });
         continue;
@@ -527,24 +552,6 @@ export class TradingLoops {
           });
           continue;
         }
-      }
-
-      // Bug 4: Duplicate signal cooldown
-      const cooldownKey = `${symbol}:${signal.action}`;
-      const lastExec = this.lastSignalTime.get(cooldownKey);
-      if (lastExec && Date.now() - lastExec.timestamp < TradingLoops.SIGNAL_COOLDOWN_MS) {
-        this.logger.info('Signal cooldown active', {
-          symbol,
-          action: signal.action,
-          lastExecMs: Date.now() - lastExec.timestamp
-        });
-        this.signalLog?.record({
-          symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
-          strategy: this.config.strategy, outcome: 'cooldown',
-          blockedBy: 'signal_cooldown', riskReason: `Cooldown: ${Date.now() - lastExec.timestamp}ms since last`,
-          edgeDataJson: null, timestamp: Date.now(),
-        });
-        continue;
       }
 
       // ── Phase 1C: Reserve inventory before placing sell ───────
@@ -853,18 +860,42 @@ export class TradingLoops {
         symbol,
         snapshot: this.snapshot,
         ticker,
-        nowMs: Date.now()
+        nowMs: Date.now(),
+        candles,
       });
 
       if (decision.allowed) {
-        const order = await this.orderManager.submitSignal({ symbol, signal: trailingStopSignal, ticker });
+        // Capture entry price BEFORE order/snapshot changes remove the position
+        const posBeforeExit = this.snapshot.openPositions.find((p: Position) => p.symbol === symbol);
+        const entryPrice = posBeforeExit?.avgEntryPrice ?? 0;
+
+        // Inventory guard + reservation for trailing stop sells
+        let tsReservedQty = 0;
+        if (this.inventory && posBeforeExit) {
+          const deployPct = this.config.risk.deployPercent ?? 0.5;
+          const desiredQty = posBeforeExit.quantity * deployPct;
+          const clamped = this.inventory.clampSellQty(symbol, desiredQty);
+          if (clamped <= 0) {
+            this.logger.warn('trailing stop SELL skipped — no inventory after clamping', { symbol });
+            return;
+          }
+          this.inventory.reserve(symbol, clamped, `trailing-stop:${Date.now()}`);
+          tsReservedQty = clamped;
+        }
+
+        const order = await this.orderManager.submitSignal({
+          symbol,
+          signal: trailingStopSignal,
+          ticker,
+          currentPosition: posBeforeExit,
+          availableCashUsd: this.inventory?.getCashUsd() ?? this.snapshot.cashUsd,
+        });
         if (order) {
           this.applyOrderToSnapshot(order.symbol, order.side, order.filledQuantity, order.avgFillPrice ?? ticker.last, order.totalFees ?? 0);
           this.trailingStopManager.closePosition(symbol);
-          
+
           const router3 = this.alert as NotificationRouter;
           const exitPrice = order.avgFillPrice ?? ticker.last;
-          const entryPrice = this.snapshot.openPositions.find((p: Position) => p.symbol === symbol)?.avgEntryPrice ?? exitPrice;
           const pnlPct = entryPrice > 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 : 0;
           if (typeof router3.routeTemplate === 'function') {
             await router3.routeTemplate(
@@ -878,6 +909,8 @@ export class TradingLoops {
               orderId: order.orderId, symbol, mode: this.config.mode,
             });
           }
+        } else if (tsReservedQty > 0 && this.inventory) {
+          this.inventory.releaseReservation(symbol, tsReservedQty, `trailing-stop-no-order:${Date.now()}`);
         }
       } else {
         this.logger.warn('trailing stop blocked by risk engine', { symbol, reason: decision.reason });

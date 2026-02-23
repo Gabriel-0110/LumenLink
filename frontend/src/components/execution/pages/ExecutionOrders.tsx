@@ -156,10 +156,7 @@ export function ExecutionOrders() {
       key: 'reason',
       header: 'Reason',
       render: (row) => (
-        <span
-          className="text-xs text-muted max-w-[200px] truncate block"
-          title={row.reason}
-        >
+        <span className="text-xs text-muted whitespace-normal break-words">
           {row.reason}
         </span>
       ),

@@ -113,9 +113,6 @@ export function TradesTable({ trades }: Props) {
               hour: '2-digit',
               minute: '2-digit',
             });
-            const reason =
-              trade.reason.length > 60 ? trade.reason.slice(0, 58) + '...' : trade.reason;
-
             return (
               <tr key={`${trade.orderId}-${i}`} className="hover:bg-white/[0.03]">
                 <td className="px-3.5 py-2.5 border-t border-border whitespace-nowrap text-xs text-muted">
@@ -155,11 +152,8 @@ export function TradesTable({ trades }: Props) {
                 <td className="px-3.5 py-2.5 border-t border-border" style={{ color: confColor }}>
                   {confPct}
                 </td>
-                <td
-                  className="px-3.5 py-2.5 border-t border-border max-w-[280px] truncate text-muted text-xs"
-                  title={trade.reason}
-                >
-                  {reason}
+                <td className="px-3.5 py-2.5 border-t border-border text-muted text-xs whitespace-normal break-words">
+                  {trade.reason}
                 </td>
                 <td className="px-3.5 py-2.5 border-t border-border text-muted">
                   {duration}

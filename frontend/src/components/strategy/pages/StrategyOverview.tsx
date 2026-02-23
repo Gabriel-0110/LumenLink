@@ -248,7 +248,7 @@ function DecisionRow({ decision, onClick }: { decision: DecisionRecordData; onCl
       </span>
 
       {/* Explanation summary */}
-      <span className="text-xs text-muted truncate flex-1">
+      <span className="text-xs text-muted flex-1 whitespace-normal break-words">
         {decision.explanation.summary}
       </span>
 

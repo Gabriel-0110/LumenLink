@@ -129,10 +129,7 @@ export function ExecutionSignals() {
       key: 'reason',
       header: 'Reason',
       render: (row) => (
-        <span
-          className="text-xs text-muted max-w-[250px] truncate block"
-          title={row.riskReason ?? row.reason}
-        >
+        <span className="text-xs text-muted whitespace-normal break-words">
           {row.riskReason ?? row.reason}
         </span>
       ),

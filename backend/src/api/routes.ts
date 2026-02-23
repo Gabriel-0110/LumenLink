@@ -16,6 +16,8 @@ import type { TradingLoops } from '../../../src/jobs/loops.js';
 import type { KillSwitch } from '../../../src/execution/killSwitch.js';
 import type { TradeJournal } from '../../../src/data/tradeJournal.js';
 import type { HealthReport } from '../../../src/core/healthReport.js';
+import type { SignalLog } from '../../../src/data/signalLog.js';
+import type { AlertStore } from '../../../src/data/alertStore.js';
 import type { Strategy } from '../../../src/strategies/interface.js';
 import { createAuthMiddleware, type AuthConfig } from '../middleware/auth.js';
 import { createCorsMiddleware, type CorsConfig } from '../middleware/cors.js';
@@ -37,6 +39,16 @@ export interface RouteContext {
   onStrategySwitch?: (name: string) => Strategy | null;
   /** Callback to update runtime config (risk limits etc). */
   onConfigUpdate?: (patch: Record<string, unknown>) => { applied: Record<string, unknown>; rejected: string[] };
+  signalLog?: SignalLog;
+  alertStore?: AlertStore;
+  /** Callback to pause the trading session. */
+  onSessionPause?: () => void;
+  /** Callback to resume the trading session. */
+  onSessionResume?: () => void;
+  /** Callback to close a position by symbol. Returns true if order was submitted. */
+  onPositionClose?: (symbol: string) => Promise<boolean>;
+  /** Callback to cancel all open orders. Returns number cancelled. */
+  onCancelAll?: () => Promise<number>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -455,6 +467,188 @@ const routes: Route[] = [
           avgDailyPnl: days.length > 0 ? totalPnl / days.length : 0,
         },
       });
+    },
+  },
+
+  // ── Phase 2: Execution dashboard endpoints ──────────────────────────────
+
+  // Health counters (dedicated endpoint for reconciliation & performance pages)
+  {
+    method: 'GET',
+    path: '/api/health/counters',
+    handler: (_req, res, ctx) => {
+      const counters = ctx.healthReport?.getCounters();
+      if (!counters) {
+        return json(res, { error: 'health_report_unavailable' }, 503);
+      }
+      json(res, counters);
+    },
+  },
+
+  // ── Phase 3: Signal log, alerts, timeline, session controls ─────────────
+
+  // Signal history
+  {
+    method: 'GET',
+    path: '/api/signals/history',
+    handler: (req, res, ctx) => {
+      if (!ctx.signalLog) {
+        return json(res, { error: 'signal_log_unavailable' }, 503);
+      }
+      const url = new URL(req.url ?? '', 'http://localhost');
+      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '200', 10), 500);
+      const outcome = url.searchParams.get('outcome');
+      const symbol = url.searchParams.get('symbol');
+
+      let signals;
+      if (outcome) {
+        signals = ctx.signalLog.getByOutcome(outcome, limit);
+      } else if (symbol) {
+        signals = ctx.signalLog.getBySymbol(symbol, limit);
+      } else {
+        signals = ctx.signalLog.getRecent(limit);
+      }
+      json(res, { signals, count: signals.length });
+    },
+  },
+
+  // Alert history
+  {
+    method: 'GET',
+    path: '/api/alerts/history',
+    handler: (req, res, ctx) => {
+      if (!ctx.alertStore) {
+        return json(res, { error: 'alert_store_unavailable' }, 503);
+      }
+      const url = new URL(req.url ?? '', 'http://localhost');
+      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 500);
+      const level = url.searchParams.get('level');
+
+      const alerts = level
+        ? ctx.alertStore.getByLevel(level as 'critical' | 'warn' | 'info', limit)
+        : ctx.alertStore.getRecent(limit);
+      json(res, { alerts, count: alerts.length });
+    },
+  },
+
+  // Unified event timeline (trades + signals + alerts merged by timestamp)
+  {
+    method: 'GET',
+    path: '/api/events/timeline',
+    handler: (req, res, ctx) => {
+      const url = new URL(req.url ?? '', 'http://localhost');
+      const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 500);
+      const since = parseInt(url.searchParams.get('since') ?? '0', 10);
+
+      const events: Array<{ type: string; timestamp: number; data: unknown }> = [];
+
+      // Trade journal entries
+      if (ctx.journal) {
+        const trades = ctx.journal.getRecent(limit);
+        for (const t of trades) {
+          if (t.timestamp >= since) {
+            events.push({ type: t.action === 'entry' ? 'trade_entry' : 'trade_exit', timestamp: t.timestamp, data: t });
+          }
+        }
+      }
+
+      // Signal log entries (blocked signals only — executed ones overlap with trades)
+      if (ctx.signalLog) {
+        const signals = ctx.signalLog.getRecent(limit);
+        for (const s of signals) {
+          if (s.timestamp >= since && s.outcome !== 'executed' && s.outcome !== 'hold') {
+            events.push({ type: 'signal_blocked', timestamp: s.timestamp, data: s });
+          }
+        }
+      }
+
+      // Alert entries
+      if (ctx.alertStore) {
+        const alerts = ctx.alertStore.getSince(since, limit);
+        for (const a of alerts) {
+          events.push({ type: 'alert', timestamp: a.timestamp, data: a });
+        }
+      }
+
+      // Sort by timestamp descending, limit
+      events.sort((a, b) => b.timestamp - a.timestamp);
+      json(res, { events: events.slice(0, limit), count: events.length });
+    },
+  },
+
+  // Session pause
+  {
+    method: 'POST',
+    path: '/api/session/pause',
+    handler: (_req, res, ctx) => {
+      if (!ctx.onSessionPause) {
+        return json(res, { error: 'not_supported', message: 'Session pause not wired' }, 501);
+      }
+      ctx.onSessionPause();
+      ctx.logger.info('trading session paused via API');
+      eventBus.emit('alerts', {
+        level: 'warn',
+        title: 'Session Paused',
+        message: 'Trading paused via dashboard',
+        timestamp: Date.now(),
+      });
+      json(res, { ok: true, paused: true });
+    },
+  },
+
+  // Session resume
+  {
+    method: 'POST',
+    path: '/api/session/resume',
+    handler: (_req, res, ctx) => {
+      if (!ctx.onSessionResume) {
+        return json(res, { error: 'not_supported', message: 'Session resume not wired' }, 501);
+      }
+      ctx.onSessionResume();
+      ctx.logger.info('trading session resumed via API');
+      eventBus.emit('alerts', {
+        level: 'info',
+        title: 'Session Resumed',
+        message: 'Trading resumed via dashboard',
+        timestamp: Date.now(),
+      });
+      json(res, { ok: true, paused: false });
+    },
+  },
+
+  // Close position
+  {
+    method: 'POST',
+    path: '/api/positions/close',
+    handler: async (req, res, ctx) => {
+      const body = await parseJsonBody<{ symbol: string }>(req);
+      if (!body?.symbol) {
+        return json(res, { error: 'missing_field', message: 'Provide { "symbol": "<PAIR>" }' }, 400);
+      }
+      if (!ctx.onPositionClose) {
+        return json(res, { error: 'not_supported', message: 'Position close not wired' }, 501);
+      }
+      const ok = await ctx.onPositionClose(body.symbol);
+      if (ok) {
+        ctx.logger.info('position close requested via API', { symbol: body.symbol });
+        json(res, { ok: true, symbol: body.symbol });
+      } else {
+        json(res, { error: 'close_failed', symbol: body.symbol }, 500);
+      }
+    },
+  },
+
+  // Cancel all open orders
+  {
+    method: 'POST',
+    path: '/api/orders/cancel-all',
+    handler: async (_req, res, ctx) => {
+      if (!ctx.onCancelAll) {
+        return json(res, { error: 'not_supported', message: 'Cancel all not wired' }, 501);
+      }
+      const count = await ctx.onCancelAll();
+      ctx.logger.info('cancel all orders via API', { cancelled: count });
+      json(res, { ok: true, cancelled: count });
     },
   },
 ];

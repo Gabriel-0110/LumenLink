@@ -1,9 +1,8 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
-  CandlestickChart,
+  Crosshair,
   Brain,
-  ShieldAlert,
   BarChart3,
   Settings,
   ChevronLeft,
@@ -16,13 +15,13 @@ interface NavItem {
   label: string;
   path: string;
   icon: React.ReactNode;
+  matchPrefix?: string;
 }
 
 const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <LayoutDashboard size={20} /> },
-  { label: 'Trading', path: '/trading', icon: <CandlestickChart size={20} /> },
+  { label: 'Execution', path: '/execution', icon: <Crosshair size={20} />, matchPrefix: '/execution' },
   { label: 'Strategy', path: '/strategy', icon: <Brain size={20} /> },
-  { label: 'Risk', path: '/risk', icon: <ShieldAlert size={20} /> },
   { label: 'Reports', path: '/reports', icon: <BarChart3 size={20} /> },
   { label: 'Settings', path: '/settings', icon: <Settings size={20} /> },
 ];
@@ -30,6 +29,7 @@ const navItems: NavItem[] = [
 export function Sidebar() {
   const collapsed = useDashboardStore((s) => s.sidebarCollapsed);
   const toggle = useDashboardStore((s) => s.toggleSidebar);
+  const location = useLocation();
 
   return (
     <aside
@@ -54,13 +54,17 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            end={item.path === '/'}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-input text-sm font-medium
+        {navItems.map((item) => {
+          const isActive = item.matchPrefix
+            ? location.pathname.startsWith(item.matchPrefix)
+            : location.pathname === item.path;
+
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              end={!item.matchPrefix}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-input text-sm font-medium
                transition-colors cursor-pointer min-h-[44px]
                ${
                  isActive
@@ -68,14 +72,14 @@ export function Sidebar() {
                    : 'text-muted hover:bg-surface2 hover:text-text'
                }
                ${collapsed ? 'justify-center' : ''}
-              `
-            }
-            title={collapsed ? item.label : undefined}
-          >
-            <span className="shrink-0">{item.icon}</span>
-            {!collapsed && <span>{item.label}</span>}
-          </NavLink>
-        ))}
+              `}
+              title={collapsed ? item.label : undefined}
+            >
+              <span className="shrink-0">{item.icon}</span>
+              {!collapsed && <span>{item.label}</span>}
+            </NavLink>
+          );
+        })}
       </nav>
 
       {/* Collapse toggle */}

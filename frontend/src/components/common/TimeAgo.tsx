@@ -1,0 +1,34 @@
+import { useEffect, useState } from 'react';
+
+interface TimeAgoProps {
+  timestamp: number;
+  className?: string;
+}
+
+function formatTimeAgo(ts: number): string {
+  const diff = Math.max(0, Date.now() - ts);
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+export function TimeAgo({ timestamp, className }: TimeAgoProps) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <span className={className} title={new Date(timestamp).toLocaleString()}>
+      {formatTimeAgo(timestamp)}
+    </span>
+  );
+}

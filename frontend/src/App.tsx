@@ -1,10 +1,22 @@
 import { useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ErrorBoundary } from 'react-error-boundary';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { Overview } from './components/dashboard/Overview';
-import { KillSwitchPanel } from './components/controls/KillSwitchPanel';
+import { ExecutionLayout } from './components/execution/ExecutionLayout';
+import {
+  ExecutionOverview,
+  ExecutionPositions,
+  ExecutionOrders,
+  ExecutionFills,
+  SessionControls,
+  ExecutionSignals,
+  ExecutionJournal,
+  ExecutionReconciliation,
+  ExecutionPerformance,
+  ExecutionAlerts,
+} from './components/execution/pages';
 import { useDashboardStore } from './store/dashboardStore';
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: unknown; resetErrorBoundary: () => void }) {
@@ -69,9 +81,26 @@ export default function App() {
             <ErrorBoundary FallbackComponent={ErrorFallback}>
               <Routes>
                 <Route path="/" element={<Overview />} />
-                <Route path="/trading" element={<PlaceholderPage title="Trading" />} />
+
+                {/* Execution section with nested sub-pages */}
+                <Route path="/execution" element={<ExecutionLayout />}>
+                  <Route index element={<ExecutionOverview />} />
+                  <Route path="positions" element={<ExecutionPositions />} />
+                  <Route path="orders" element={<ExecutionOrders />} />
+                  <Route path="fills" element={<ExecutionFills />} />
+                  <Route path="controls" element={<SessionControls />} />
+                  <Route path="signals" element={<ExecutionSignals />} />
+                  <Route path="journal" element={<ExecutionJournal />} />
+                  <Route path="reconciliation" element={<ExecutionReconciliation />} />
+                  <Route path="performance" element={<ExecutionPerformance />} />
+                  <Route path="alerts" element={<ExecutionAlerts />} />
+                </Route>
+
+                {/* Redirect old routes */}
+                <Route path="/trading" element={<Navigate to="/execution" replace />} />
+                <Route path="/risk" element={<Navigate to="/execution/controls" replace />} />
+
                 <Route path="/strategy" element={<PlaceholderPage title="Strategy" />} />
-                <Route path="/risk" element={<KillSwitchPanel />} />
                 <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
                 <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
               </Routes>

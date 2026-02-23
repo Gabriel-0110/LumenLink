@@ -40,6 +40,8 @@ export interface GatekeeperConfig {
   feeRateBps: number;
   /** Safety margin bps added to fee+slippage for edge filter (default: 20). */
   safetyMarginBps: number;
+  /** Fraction of ATR expected to be captured at full confidence (default: 0.5). */
+  atrCaptureRatio: number;
   /** Estimated slippage in bps (default: 5). */
   estimatedSlippageBps: number;
   /** Minimum notional USD per trade to avoid fee drag (default: 50). */
@@ -53,6 +55,7 @@ const DEFAULT_CONFIG: GatekeeperConfig = {
   sellMinAtrMoveFromLast: 0.5,
   feeRateBps: 240,       // round-trip: 120bps buy + 120bps sell (Coinbase taker <$10k tier)
   safetyMarginBps: 20,
+  atrCaptureRatio: 0.5,
   estimatedSlippageBps: 5,
   minNotionalUsd: 50,
   chopAdxThreshold: 25,
@@ -214,8 +217,8 @@ export class TradeGatekeeper {
     }
 
     // Expected move = fraction of ATR based on confidence
-    // We assume the strategy expects to capture ~50% of 1 ATR at full confidence
-    const expectedMoveBps = (atr / price) * 10_000 * signal.confidence * 0.5;
+    // Capture ratio is configurable (default 0.5 = 50% of 1 ATR at full confidence)
+    const expectedMoveBps = (atr / price) * 10_000 * signal.confidence * this.config.atrCaptureRatio;
 
     if (expectedMoveBps < totalCostBps) {
       return {
@@ -249,7 +252,7 @@ export class TradeGatekeeper {
     const totalCostBps = this.config.feeRateBps + this.config.estimatedSlippageBps + this.config.safetyMarginBps;
     let expectedMoveBps = 0;
     if (atr && atr > 0 && price > 0) {
-      expectedMoveBps = (atr / price) * 10_000 * signal.confidence * 0.5;
+      expectedMoveBps = (atr / price) * 10_000 * signal.confidence * this.config.atrCaptureRatio;
     }
     return {
       expectedMoveBps: Math.round(expectedMoveBps),

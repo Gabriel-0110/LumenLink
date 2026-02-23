@@ -19,6 +19,7 @@ import type { InventoryManager } from '../execution/inventoryManager.js';
 import type { FillReconciler } from '../execution/fillReconciler.js';
 import type { TradeGatekeeper } from '../risk/tradeGatekeeper.js';
 import type { HealthReport } from '../core/healthReport.js';
+import type { SignalLog } from '../data/signalLog.js';
 import { ATR } from 'technicalindicators';
 
 export interface RuntimeState {
@@ -96,6 +97,12 @@ export class TradingLoops {
    */
   private fillReconciler?: FillReconciler;
   setFillReconciler(fr: FillReconciler): void { this.fillReconciler = fr; }
+
+  /**
+   * Optional signal log — records every signal evaluation for the dashboard.
+   */
+  private signalLog?: SignalLog;
+  setSignalLog(sl: SignalLog): void { this.signalLog = sl; }
 
   /**
    * Hydrate snapshot from InventoryManager (Phase 1A).
@@ -406,6 +413,16 @@ export class TradingLoops {
       // Always log what the strategy decided (visible in logs for easy diagnosis)
       this.logger.info('strategy signal', { symbol, action: signal.action, confidence: signal.confidence?.toFixed(2), reason: signal.reason });
 
+      // Skip HOLD signals — nothing to evaluate
+      if (signal.action === 'HOLD') {
+        this.signalLog?.record({
+          symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
+          strategy: this.config.strategy, outcome: 'hold', blockedBy: null, riskReason: null,
+          edgeDataJson: null, timestamp: Date.now(),
+        });
+        continue;
+      }
+
       const decision = this.riskEngine.evaluate({
         signal,
         symbol,
@@ -422,6 +439,12 @@ export class TradingLoops {
           blockReason: decision.reason,
           blockedBy: decision.blockedBy
         });
+        this.signalLog?.record({
+          symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
+          strategy: this.config.strategy, outcome: 'risk_blocked',
+          blockedBy: decision.blockedBy ?? null, riskReason: decision.reason,
+          edgeDataJson: null, timestamp: Date.now(),
+        });
         continue;
       }
 
@@ -437,6 +460,12 @@ export class TradingLoops {
             symbol, reason: invCheck.reason, available: invCheck.availableQty.toFixed(8),
           });
           this.healthReport?.recordInventoryBlock();
+          this.signalLog?.record({
+            symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
+            strategy: this.config.strategy, outcome: 'inventory_blocked',
+            blockedBy: 'inventory_guard', riskReason: invCheck.reason,
+            edgeDataJson: null, timestamp: Date.now(),
+          });
           continue;
         }
       }
@@ -481,6 +510,13 @@ export class TradingLoops {
             gate: gateDecision.gate,
           });
           if (gateDecision.gate) this.healthReport?.recordGateBlock(gateDecision.gate);
+          this.signalLog?.record({
+            symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
+            strategy: this.config.strategy, outcome: 'gate_blocked',
+            blockedBy: gateDecision.gate ?? null, riskReason: gateDecision.reason,
+            edgeDataJson: gateDecision.edgeAnalysis ? JSON.stringify(gateDecision.edgeAnalysis) : null,
+            timestamp: Date.now(),
+          });
           continue;
         }
       }
@@ -493,6 +529,12 @@ export class TradingLoops {
           symbol,
           action: signal.action,
           lastExecMs: Date.now() - lastExec.timestamp
+        });
+        this.signalLog?.record({
+          symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
+          strategy: this.config.strategy, outcome: 'cooldown',
+          blockedBy: 'signal_cooldown', riskReason: `Cooldown: ${Date.now() - lastExec.timestamp}ms since last`,
+          edgeDataJson: null, timestamp: Date.now(),
         });
         continue;
       }
@@ -535,6 +577,11 @@ export class TradingLoops {
             symbol, action: signal.action, error: msg,
           });
         }
+        this.signalLog?.record({
+          symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
+          strategy: this.config.strategy, outcome: 'order_failed',
+          blockedBy: null, riskReason: msg, edgeDataJson: null, timestamp: Date.now(),
+        });
         continue;
       }
 
@@ -624,6 +671,13 @@ export class TradingLoops {
           this.logger.warn('failed to record trade journal entry', { orderId: order.orderId, err: String(err) });
         }
       }
+
+      // Record executed signal
+      this.signalLog?.record({
+        symbol, action: signal.action, confidence: signal.confidence, reason: signal.reason,
+        strategy: this.config.strategy, outcome: 'executed',
+        blockedBy: null, riskReason: null, edgeDataJson: null, timestamp: Date.now(),
+      });
 
       // Handle trailing stops for new positions
       if (order.side === 'buy') {

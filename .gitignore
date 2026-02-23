@@ -8,6 +8,9 @@ pnpm-debug.log*
 .env.local
 .env.production
 .env.paper
+.env*
+!.env.example
+!.env.template
 
 # Build outputs
 dist/

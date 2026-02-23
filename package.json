@@ -10,8 +10,11 @@
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:op": "op run --env-file=.env -- pnpm dev",
     "paper": "MODE=paper tsx src/index.ts",
+    "paper:op": "op run --env-file=.env -- pnpm paper",
     "coinbase:smoke": "tsx src/coinbaseSmoke.ts",
+    "coinbase:smoke:op": "op run --env-file=.env -- pnpm coinbase:smoke",
     "backtest": "tsx src/backtester/run.ts",
     "backtest:history": "tsx src/backtester/history.ts",
     "backtest:compare": "tsx src/backtester/compare.ts",

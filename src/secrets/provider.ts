@@ -15,7 +15,8 @@ export const buildSecretsProvider = (config: AppConfig): SecretsProvider => {
     const vault = process.env.OP_VAULT ?? 'Trading';
     return new OnePasswordProvider(process.env, {
       vault,
-      fallbackToEnv: config.mode === 'paper', // only fallback in paper mode
+      // Enforce 1Password-only secret loading when provider is explicitly selected.
+      fallbackToEnv: false,
     });
   }
 

@@ -1,25 +1,6 @@
 ---
 name: risk-monitor
-description: Use this agent for risk management monitoring, kill switch analysis, and position safety validation. Examples:
-
-  <example>
-  Context: Bot stopped trading unexpectedly
-  user: "Why did my bot stop trading?"
-  assistant: "I'll run the risk monitor to check kill switch state, circuit breakers, and all risk gates that could block trading."
-  <commentary>
-  Trading stoppages need systematic diagnosis across multiple risk layers: kill switch, DRY_RUN, circuit breaker, trade gatekeeper, inventory guards.
-  </commentary>
-  </example>
-
-  <example>
-  Context: Risk parameter tuning
-  user: "Are my risk limits too tight?"
-  assistant: "I'll analyze your risk configuration against recent trading history to identify overly restrictive parameters."
-  <commentary>
-  Risk limits need to balance protection with trading opportunity - too tight prevents profitable trades.
-  </commentary>
-  </example>
-
+description: "Use this agent for risk management monitoring, kill switch analysis, and position safety validation. Triggers on requests like 'why did trading stop', 'check risk limits', 'kill switch status', or 'are my risk limits too tight'."
 model: inherit
 color: red
 tools: ["Read", "Grep", "Glob", "Bash"]

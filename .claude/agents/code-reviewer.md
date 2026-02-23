@@ -1,25 +1,6 @@
 ---
 name: code-reviewer
-description: Use this agent for code review and quality assurance of trading bot code. Examples:
-
-  <example>
-  Context: Developer submits new strategy implementation
-  user: "Review my new RSI divergence strategy code"
-  assistant: "Let me run the code reviewer agent to analyze your strategy implementation for correctness, edge cases, and trading-specific risks."
-  <commentary>
-  Trading code requires specialized review for financial correctness, race conditions, and risk management compliance.
-  </commentary>
-  </example>
-
-  <example>
-  Context: Changes to execution pipeline
-  user: "I changed the order manager, can you review it?"
-  assistant: "I'll run the code reviewer to check the order manager changes for idempotency, error handling, and position safety."
-  <commentary>
-  Execution pipeline changes are critical and need thorough review for phantom trades, duplicate orders, and state consistency.
-  </commentary>
-  </example>
-
+description: "Use this agent for code review and quality assurance of trading bot code. Triggers on requests like 'review my code', 'check this for bugs', 'audit the order manager', or 'is this safe to merge'."
 model: inherit
 color: cyan
 tools: ["Read", "Grep", "Glob", "Bash"]

@@ -1,25 +1,6 @@
 ---
 name: test-engineer
-description: Use this agent for writing and running tests, test coverage analysis, and QA validation. Examples:
-
-  <example>
-  Context: New feature needs tests
-  user: "Write tests for the trailing stop implementation"
-  assistant: "I'll run the test engineer to create comprehensive tests for trailing stops including edge cases."
-  <commentary>
-  Trading system tests need to cover normal flow, edge cases, and financial correctness scenarios.
-  </commentary>
-  </example>
-
-  <example>
-  Context: Post-development validation
-  user: "Run the test suite and check coverage"
-  assistant: "I'll execute the full test suite and analyze coverage gaps in critical trading paths."
-  <commentary>
-  Post-development testing ensures no regressions in execution pipeline, risk engine, or strategy logic.
-  </commentary>
-  </example>
-
+description: "Use this agent for writing and running tests, test coverage analysis, and QA validation. Triggers on requests like 'write tests for', 'run the test suite', 'check coverage', or 'create regression tests'."
 model: inherit
 color: magenta
 tools: ["Read", "Write", "Grep", "Glob", "Bash"]

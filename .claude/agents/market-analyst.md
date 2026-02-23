@@ -1,25 +1,6 @@
 ---
 name: market-analyst
-description: Use this agent for real-time market analysis, sentiment research, and trading opportunity assessment using MCP tools. Examples:
-
-  <example>
-  Context: User wants current market conditions
-  user: "What's the market looking like right now?"
-  assistant: "I'll run the market analyst to pull real-time data from Binance, check sentiment, and assess trading conditions."
-  <commentary>
-  Market analysis uses MCP tools (Binance data, market snapshot, crypto data, news sentiment) for comprehensive real-time assessment.
-  </commentary>
-  </example>
-
-  <example>
-  Context: User wants to evaluate a trade
-  user: "Should the bot be buying BTC right now?"
-  assistant: "I'll analyze current BTC conditions including order book depth, recent trades, sentiment, and technical levels."
-  <commentary>
-  Trade evaluation needs multi-source data: price action, order book, sentiment, news, and on-chain metrics.
-  </commentary>
-  </example>
-
+description: "Use this agent for real-time market analysis, sentiment research, and trading opportunity assessment using MCP tools. Triggers on requests like 'what is the market doing', 'analyze BTC', 'check sentiment', or 'should the bot be buying'."
 model: inherit
 color: cyan
 ---

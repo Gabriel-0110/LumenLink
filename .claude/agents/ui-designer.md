@@ -1,25 +1,6 @@
 ---
 name: ui-designer
-description: Use this agent for UI/UX design, frontend development, and dashboard improvements. Examples:
-
-  <example>
-  Context: Dashboard needs new features
-  user: "Add candlestick charts to the dashboard"
-  assistant: "I'll run the UI designer to implement interactive candlestick charts with proper trading indicators overlay."
-  <commentary>
-  Trading dashboards require specialized charting with financial data visualization best practices.
-  </commentary>
-  </example>
-
-  <example>
-  Context: Design review
-  user: "The dashboard looks outdated, improve it"
-  assistant: "I'll redesign the dashboard with a professional fintech dark theme, better data density, and responsive layout."
-  <commentary>
-  Trading dashboard design needs dark mode, high information density, real-time updates, and professional fintech aesthetics.
-  </commentary>
-  </example>
-
+description: "Use this agent for UI/UX design, frontend development, and dashboard improvements. Triggers on requests like 'add charts to dashboard', 'improve the UI', 'redesign the dashboard', or 'add a new dashboard page'."
 model: inherit
 color: blue
 tools: ["Read", "Write", "Grep", "Glob", "Bash"]

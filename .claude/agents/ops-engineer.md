@@ -1,25 +1,6 @@
 ---
 name: ops-engineer
-description: Use this agent for deployment, infrastructure, monitoring, and operational tasks. Examples:
-
-  <example>
-  Context: Deploying bot to production
-  user: "Help me deploy the trading bot"
-  assistant: "I'll run the ops engineer to set up deployment configuration, health checks, and monitoring."
-  <commentary>
-  Production deployment of trading bots requires careful configuration validation, secret management, and monitoring setup.
-  </commentary>
-  </example>
-
-  <example>
-  Context: Setting up monitoring
-  user: "Set up Grafana dashboards for the bot"
-  assistant: "I'll configure Grafana dashboards with Prometheus metrics for trading performance monitoring."
-  <commentary>
-  Operational monitoring is critical for live trading - need P&L tracking, risk alerts, and system health.
-  </commentary>
-  </example>
-
+description: "Use this agent for deployment, infrastructure, monitoring, and operational tasks. Triggers on requests like 'deploy the bot', 'set up monitoring', 'configure Grafana', or 'create Docker deployment'."
 model: inherit
 color: yellow
 tools: ["Read", "Write", "Grep", "Glob", "Bash"]

@@ -37,9 +37,9 @@ const DEFAULT_CONFIG: OnePasswordConfig = {
 // Maps secret IDs to 1Password item/field paths
 const SECRET_TO_OP_MAP: Record<string, { item: string; field: string }> = {
   // Trading APIs
-  'prod/trading/coinbase/key': { item: 'LumenLink API - Coinbase', field: 'COINBASE_API_KEY' },
-  'prod/trading/coinbase/secret': { item: 'LumenLink API - Coinbase', field: 'COINBASE_API_SECRET' },
-  'prod/trading/coinbase/passphrase': { item: 'LumenLink API - Coinbase', field: 'COINBASE_API_PASSPHRASE' },
+  'prod/trading/coinbase/key': { item: 'vqz4mlnnxsgiwocvggtm6ciyyy', field: 'COINBASE_API_KEY' },
+  'prod/trading/coinbase/secret': { item: 'vqz4mlnnxsgiwocvggtm6ciyyy', field: 'COINBASE_API_SECRET' },
+  'prod/trading/coinbase/passphrase': { item: 'vqz4mlnnxsgiwocvggtm6ciyyy', field: 'COINBASE_API_PASSPHRASE' },
   'prod/trading/binance/key': { item: 'Binance', field: 'api-key' },
   'prod/trading/binance/secret': { item: 'Binance', field: 'api-secret' },
   'prod/trading/bybit/key': { item: 'Bybit', field: 'api-key' },
@@ -97,29 +97,33 @@ export class OnePasswordProvider implements SecretsProvider {
       return cached.value;
     }
 
-    // Check if env var contains an op:// reference
     const envVal = fallbackEnvName ? this.env[fallbackEnvName] : undefined;
-    if (envVal?.startsWith('op://')) {
-      return this.resolveOpReference(envVal, secretId, fallbackEnvName);
-    }
 
-    // Try 1Password via secret ID mapping
+    // Try 1Password via secret ID mapping first (stable, code-owned mapping).
     const opMapping = SECRET_TO_OP_MAP[secretId];
     if (opMapping) {
       try {
-        const ref = `op://${this.config.vault}/${opMapping.item}/${opMapping.field}`;
-        const value = this.readFromOp(ref);
+        const value = this.readFromOpItem(opMapping.item, opMapping.field);
         this.cache.set(secretId, { value, expiresAt: Date.now() + this.config.cacheTtlMs });
         return value;
       } catch (err) {
         if (OPTIONAL_SECRETS.has(secretId)) {
           return '';
         }
+        // If mapping read fails, allow explicit env op:// reference as fallback.
+        if (envVal?.startsWith('op://')) {
+          return this.resolveOpReference(envVal, secretId, fallbackEnvName);
+        }
         if (this.config.fallbackToEnv && envVal) {
           return envVal.trim();
         }
         throw new Error(`1Password: Failed to read ${secretId}: ${err}`);
       }
+    }
+
+    // If there is no mapping, try env op:// reference directly.
+    if (envVal?.startsWith('op://')) {
+      return this.resolveOpReference(envVal, secretId, fallbackEnvName);
     }
 
     // Fall back to env var
@@ -157,6 +161,16 @@ export class OnePasswordProvider implements SecretsProvider {
       }
       throw err;
     }
+  }
+
+  private readFromOpItem(item: string, field: string): string {
+    const escapedVault = this.config.vault.replace(/"/g, '\\"');
+    const escapedItem = item.replace(/"/g, '\\"');
+    const escapedField = field.replace(/"/g, '\\"');
+    // Use op:// reference + `op read` so concealed fields are returned as raw values
+    // (without JSON-style quoting/escaping), which is critical for PEM/base64 key parsing.
+    const reference = `op://${escapedVault}/${escapedItem}/${escapedField}`;
+    return this.readFromOp(reference);
   }
 
   /** Check if 1Password CLI is available and authenticated */

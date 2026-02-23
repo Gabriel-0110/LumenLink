@@ -108,6 +108,7 @@ function sanitizeConfig(config: AppConfig): Record<string, unknown> {
     interval: config.interval,
     strategy: config.strategy,
     pollIntervalMs: config.pollIntervalMs,
+    strategyIntervalMs: config.strategyIntervalMs,
     allowLiveTrading: config.allowLiveTrading,
     killSwitch: config.killSwitch,
     dryRun: config.dryRun,
@@ -325,7 +326,7 @@ const routes: Route[] = [
       }
       // Whitelist: only allow safe runtime-mutable fields
       const MUTABLE_FIELDS = new Set([
-        'pollIntervalMs',
+        'pollIntervalMs', 'strategyIntervalMs',
         'risk.maxDailyLossUsd', 'risk.maxPositionUsd', 'risk.maxOpenPositions',
         'risk.cooldownMinutes', 'risk.deployPercent',
         'guards.trailingStopPct', 'guards.maxSpreadBps',

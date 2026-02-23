@@ -17,6 +17,7 @@ import { TrailingStopManager, type TrailingStopConfig } from './trailingStops.js
 
 export class OrderManager {
   private readonly trailingStops = new TrailingStopManager();
+  private runtimeBlockReason?: string;
 
   constructor(
     private readonly config: AppConfig,
@@ -32,6 +33,14 @@ export class OrderManager {
 
   createClientOrderId(symbol: string, side: 'buy' | 'sell'): string {
     return `${symbol}-${side}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+
+  setRuntimeBlock(reason?: string): void {
+    this.runtimeBlockReason = reason?.trim() || undefined;
+  }
+
+  getRuntimeBlockReason(): string | undefined {
+    return this.runtimeBlockReason;
   }
 
   /**
@@ -52,6 +61,16 @@ export class OrderManager {
   }): Promise<Order | undefined> {
     const { symbol, signal, ticker, riskDecision, currentPosition, availableCashUsd } = input;
     if (signal.action === 'HOLD') return undefined;
+
+    if (this.runtimeBlockReason) {
+      this.logger.warn('order blocked by runtime safety gate', {
+        symbol,
+        action: signal.action,
+        reason: this.runtimeBlockReason,
+      });
+      this.metrics.increment('orders.runtime_blocked');
+      return undefined;
+    }
 
     // DRY_RUN mode: log everything but place no real orders
     if (this.config.dryRun) {
@@ -150,6 +169,11 @@ export class OrderManager {
    * Uses retry executor if available, updates position state machine on fills.
    */
   async placeOrder(req: AdvancedOrderRequest, ticker: Ticker): Promise<Order> {
+    if (this.runtimeBlockReason) {
+      this.metrics.increment('orders.runtime_blocked');
+      throw new Error(`Runtime safety gate active: ${this.runtimeBlockReason}`);
+    }
+
     if (this.killSwitch?.isTriggered()) {
       throw new Error('Kill switch is active — all trading halted');
     }

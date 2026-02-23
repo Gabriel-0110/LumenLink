@@ -410,7 +410,13 @@ export class TradingLoops {
         mtfResult = await this.fetchMultiTimeframeAnalysis(symbol);
       }
 
-      const signal = this.strategy.onCandle(latest, { candles, symbol, mtfResult });
+      const rawSignal = this.strategy.onCandle(latest, { candles, symbol, mtfResult });
+
+      // Convert SELL→HOLD when flat (no position to sell) — avoids phantom sell deadlock
+      const hasPosition = this.snapshot.openPositions.some((p) => p.symbol === symbol && p.quantity > 0);
+      const signal = (rawSignal.action === 'SELL' && !hasPosition)
+        ? { ...rawSignal, action: 'HOLD' as const, reason: `Flat (no position) — ${rawSignal.reason}` }
+        : rawSignal;
 
       // Always log what the strategy decided (visible in logs for easy diagnosis)
       this.logger.info('strategy signal', { symbol, action: signal.action, confidence: signal.confidence?.toFixed(2), reason: signal.reason });

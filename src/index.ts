@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isAxiosError } from 'axios';
 import { loadConfig } from './config/load.js';
 import { JsonLogger } from './core/logger.js';
 import { InMemoryMetrics } from './core/metrics.js';
@@ -41,6 +42,7 @@ import { AlertStore } from './data/alertStore.js';
 import { NotificationPrefsStore } from './alerts/notificationPrefsStore.js';
 import { NotificationRouter } from './alerts/notificationRouter.js';
 import type { CoinbaseAuthMaterial } from './exchanges/coinbase/auth.js';
+import { describeCoinbaseAuthMaterial } from './exchanges/coinbase/auth.js';
 import type { Balance, Candle, Order, OrderRequest, Ticker } from './core/types.js';
 import { createRouter } from '../backend/src/api/routes.js';
 import { createWebSocketServer } from '../backend/src/websocket/server.js';
@@ -69,6 +71,40 @@ class UnavailableExchangeAdapter implements ExchangeAdapter {
     return [];
   }
 }
+
+const onePasswordProviderSelected = (): boolean => {
+  const provider = process.env['SECRETS_PROVIDER']?.toLowerCase();
+  return provider === 'op' || provider === '1password';
+};
+
+const classifyCoinbaseStartupError = (
+  err: unknown,
+): { status?: number; path?: string; message: string; remediation: string } => {
+  if (isAxiosError(err)) {
+    const status = err.response?.status;
+    const path = err.config?.url;
+    if (status === 401 || status === 403) {
+      return {
+        status,
+        path,
+        message: 'Coinbase authentication failed during startup.',
+        remediation:
+          'Verify CDP key format (organizations/.../apiKeys/...), valid PEM private key in 1Password, and API key permissions for Advanced Trade.',
+      };
+    }
+    return {
+      status,
+      path,
+      message: `Coinbase startup request failed with HTTP ${status ?? 'unknown'}.`,
+      remediation: 'Check Coinbase API availability, network, and CDP app permissions.',
+    };
+  }
+
+  return {
+    message: String(err),
+    remediation: 'Check Coinbase credentials in 1Password and review startup logs for context.',
+  };
+};
 
 const main = async (): Promise<void> => {
   const config = loadConfig();
@@ -285,19 +321,55 @@ const main = async (): Promise<void> => {
   });
 
   let coinbaseAuth: CoinbaseAuthMaterial | undefined;
+  let startupDegradedReason: string | undefined;
   if (config.mode === 'live') {
-    await inventoryManager.hydrateFromExchange(exchange, config.symbols);
-    await loops.hydrateFromInventory(inventoryManager);
+    if (config.exchange === 'coinbase' && !onePasswordProviderSelected()) {
+      startupDegradedReason =
+        'Live Coinbase requires SECRETS_PROVIDER=op (1Password-only credentials policy).';
+      orderManager.setRuntimeBlock(startupDegradedReason);
+      healthReport.recordStartupSync('mismatch', [startupDegradedReason]);
+      logger.error('live startup degraded — trading disabled', {
+        reason: startupDegradedReason,
+        degraded: true,
+      });
+    } else {
+      try {
+        await inventoryManager.hydrateFromExchange(exchange, config.symbols);
+        await loops.hydrateFromInventory(inventoryManager);
 
-    // Verify startup sync health
-    const { diffs } = await inventoryManager.resync(exchange, config.symbols);
-    healthReport.recordStartupSync(diffs.length === 0 ? 'ok' : 'mismatch', diffs);
+        // Verify startup sync health
+        const { diffs } = await inventoryManager.resync(exchange, config.symbols);
+        healthReport.recordStartupSync(diffs.length === 0 ? 'ok' : 'mismatch', diffs);
 
-    // Cache auth material for FillReconciler (Coinbase-specific)
-    if (config.exchange === 'coinbase') {
-      const apiKey = await secrets.getSecret(config.secrets.secretIds.coinbaseKey, 'COINBASE_API_KEY');
-      const apiSecret = await secrets.getSecret(config.secrets.secretIds.coinbaseSecret, 'COINBASE_API_SECRET');
-      coinbaseAuth = { apiKey, apiSecret };
+        // Cache auth material for FillReconciler (Coinbase-specific)
+        if (config.exchange === 'coinbase') {
+          const apiKey = await secrets.getSecret(config.secrets.secretIds.coinbaseKey, 'COINBASE_API_KEY');
+          const apiSecret = await secrets.getSecret(config.secrets.secretIds.coinbaseSecret, 'COINBASE_API_SECRET');
+          const passphrase = await secrets.getSecret(
+            config.secrets.secretIds.coinbasePassphrase,
+            'COINBASE_API_PASSPHRASE'
+          );
+          const authProfile = describeCoinbaseAuthMaterial({ apiKey, apiSecret, passphrase });
+          logger.info('coinbase auth profile', {
+            mode: authProfile.mode,
+            apiKeyShape: authProfile.apiKeyShape,
+            pemType: authProfile.pemType,
+            hasPassphrase: authProfile.hasPassphrase,
+          });
+          coinbaseAuth = { apiKey, apiSecret };
+        }
+      } catch (err) {
+        const classified = classifyCoinbaseStartupError(err);
+        startupDegradedReason = `${classified.message} ${classified.remediation}`;
+        orderManager.setRuntimeBlock(startupDegradedReason);
+        healthReport.recordStartupSync('mismatch', [startupDegradedReason]);
+        logger.error('live startup degraded — trading disabled', {
+          degraded: true,
+          reason: startupDegradedReason,
+          status: classified.status,
+          path: classified.path,
+        });
+      }
     }
   } else {
     logger.info('paper mode — starting with simulated $10,000 cash, no seeded positions');
@@ -386,6 +458,10 @@ const main = async (): Promise<void> => {
           } else {
             rejected.push(key);
           }
+        }
+        // Reschedule strategy loop if interval changed
+        if (applied['strategyIntervalMs']) {
+          scheduler.reschedule('strategy', Number(applied['strategyIntervalMs']));
         }
         return { applied, rejected };
       },

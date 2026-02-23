@@ -179,6 +179,14 @@ docs/              # Architecture and operational guides
 
 See `API_KEYS_CHECKLIST.md` for comprehensive API setup guide.
 
+### Coinbase (safest mode)
+
+- Use **Coinbase CDP JWT** credentials only (no legacy HMAC flow).
+- Store credentials in **1Password** and run with `SECRETS_PROVIDER=op` (or `1password`).
+- `COINBASE_API_KEY` must be `organizations/{org_id}/apiKeys/{key_id}`.
+- `COINBASE_API_SECRET` must be a PEM private key (`BEGIN PRIVATE KEY` or `BEGIN EC PRIVATE KEY`).
+- In live mode, if auth fails at startup, LumenLink runs in degraded mode and blocks live trading.
+
 **Exchange Keys (Required):**
 - Binance API (read + trade only)
 - Telegram Bot Token (notifications)

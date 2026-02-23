@@ -11,6 +11,7 @@ import {
   XCircle,
   Layers,
   Clock,
+  Timer,
   Activity,
   DollarSign,
   Hash,
@@ -66,6 +67,7 @@ export function SessionControls() {
           'risk.maxOpenPositions': String(config.risk?.maxOpenPositions ?? ''),
           'risk.cooldownMinutes': String(config.risk?.cooldownMinutes ?? ''),
           'risk.deployPercent': String(config.risk?.deployPercent ?? ''),
+          'strategyIntervalMs': String(Math.round((config.strategyIntervalMs ?? 300000) / 1000)),
         });
       })
       .catch(() => {
@@ -122,8 +124,10 @@ export function SessionControls() {
       clearMessages();
       try {
         const numValue = Number(value);
-        if (isNaN(numValue)) throw new Error('Invalid number');
-        await updateConfig({ [key]: numValue });
+        if (isNaN(numValue) || numValue <= 0) throw new Error('Invalid number');
+        // UI shows seconds for interval fields, API expects milliseconds
+        const apiValue = key === 'strategyIntervalMs' ? numValue * 1000 : numValue;
+        await updateConfig({ [key]: apiValue });
         await fetchData();
         setActionSuccess(`Updated ${key.replace('risk.', '')}`);
       } catch (err) {
@@ -175,6 +179,14 @@ export function SessionControls() {
       currentValue: data.risk.cooldownMinutes,
       unit: 'min',
       configKey: 'risk.cooldownMinutes',
+    },
+    {
+      key: 'strategyInterval',
+      label: 'Strategy Interval',
+      icon: <Timer size={14} />,
+      currentValue: configValues['strategyIntervalMs'] ?? '300',
+      unit: 'sec',
+      configKey: 'strategyIntervalMs',
     },
   ];
 

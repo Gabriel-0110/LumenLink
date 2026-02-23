@@ -66,7 +66,11 @@ export class MarketDataService {
           await this.store.saveCandles(realCandles);
           const last = realCandles[realCandles.length - 1]!;
           this.lastCandleBySymbol.set(symbol, last);
-          this.logger.info('using free API candle data', { symbol, source: 'coinbase_public', count: realCandles.length });
+          this.logger.info('using Coinbase public candle fallback data', {
+            symbol,
+            source: 'coinbase_public_fallback',
+            count: realCandles.length,
+          });
           this.metrics.increment('market_data.poll.free_api_success');
         } else {
           // Final fallback to fake data

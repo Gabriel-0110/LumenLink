@@ -12,6 +12,11 @@ vi.mock('../../src/exchanges/coinbase/client.js', () => ({
   createCoinbaseClient: vi.fn(() => ({})),
 }));
 
+// Mock auth header builder so adapter tests stay focused on mapping logic
+vi.mock('../../src/exchanges/coinbase/auth.js', () => ({
+  buildCoinbaseHeaders: vi.fn(() => ({})),
+}));
+
 import { getJson, postJson } from '../../src/core/http.js';
 const mockGetJson = vi.mocked(getJson);
 const mockPostJson = vi.mocked(postJson);

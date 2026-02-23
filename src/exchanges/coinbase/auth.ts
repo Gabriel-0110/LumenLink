@@ -6,6 +6,8 @@ export interface CoinbaseAuthMaterial {
   passphrase?: string;
 }
 
+export type CoinbaseAuthMode = 'cdp_jwt';
+
 /* ------------------------------------------------------------------ */
 /*  Helpers for Base64URL encoding (RFC 7515)                          */
 /* ------------------------------------------------------------------ */
@@ -19,8 +21,60 @@ const base64url = (input: string | Buffer): string => {
 /*  Detect key type: CDP JWT (ES256) vs legacy HMAC                    */
 /* ------------------------------------------------------------------ */
 
-const isCdpKey = (auth: CoinbaseAuthMaterial): boolean =>
-  auth.apiKey.startsWith('organizations/') && auth.apiSecret.includes('BEGIN EC PRIVATE KEY');
+const CDP_KEY_PREFIX = 'organizations/';
+
+const hasCdpApiKeyShape = (apiKey: string): boolean =>
+  apiKey.startsWith(CDP_KEY_PREFIX) && apiKey.includes('/apiKeys/');
+
+const hasSupportedPemShape = (apiSecret: string): boolean =>
+  apiSecret.includes('BEGIN PRIVATE KEY') || apiSecret.includes('BEGIN EC PRIVATE KEY');
+
+const ensureSupportedEcdsaKey = (auth: CoinbaseAuthMaterial): void => {
+  try {
+    const keyObj = crypto.createPrivateKey({ key: normalizePem(auth.apiSecret) });
+    if (keyObj.asymmetricKeyType !== 'ec') {
+      throw new Error('expected ECDSA private key (Ed25519 keys are not supported)');
+    }
+
+    const namedCurve = keyObj.asymmetricKeyDetails?.namedCurve;
+    if (namedCurve && namedCurve !== 'prime256v1' && namedCurve !== 'secp256r1') {
+      throw new Error(`unsupported ECDSA curve ${namedCurve}; expected prime256v1/secp256r1`);
+    }
+  } catch (err) {
+    throw new Error(`Coinbase auth rejected: ${err instanceof Error ? err.message : String(err)}`);
+  }
+};
+
+export const getCoinbaseAuthMode = (auth: CoinbaseAuthMaterial): CoinbaseAuthMode => {
+  if (!hasCdpApiKeyShape(auth.apiKey)) {
+    throw new Error(
+      'Coinbase auth rejected: expected CDP API key format organizations/{org_id}/apiKeys/{key_id}.'
+    );
+  }
+
+  const normalizedSecret = normalizePem(auth.apiSecret);
+  if (!hasSupportedPemShape(normalizedSecret)) {
+    throw new Error(
+      'Coinbase auth rejected: expected CDP ECDSA private key in PEM or base64 DER PKCS#8 format.'
+    );
+  }
+
+  ensureSupportedEcdsaKey({ ...auth, apiSecret: normalizedSecret });
+
+  return 'cdp_jwt';
+};
+
+export const describeCoinbaseAuthMaterial = (
+  auth: CoinbaseAuthMaterial,
+): { mode: CoinbaseAuthMode; apiKeyShape: 'cdp'; pemType: 'pkcs8' | 'ec'; hasPassphrase: boolean } => {
+  const mode = getCoinbaseAuthMode(auth);
+  return {
+    mode,
+    apiKeyShape: 'cdp',
+    pemType: auth.apiSecret.includes('BEGIN EC PRIVATE KEY') ? 'ec' : 'pkcs8',
+    hasPassphrase: Boolean(auth.passphrase),
+  };
+};
 
 /* ------------------------------------------------------------------ */
 /*  CDP JWT (ES256) authentication — Coinbase Advanced Trade v3        */
@@ -29,8 +83,27 @@ const isCdpKey = (auth: CoinbaseAuthMaterial): boolean =>
 /**
  * Normalize PEM: .env files often store literal `\n` instead of real newlines.
  */
-const normalizePem = (pem: string): string =>
-  pem.replace(/\\n/g, '\n').trim();
+const normalizePem = (pem: string): string => {
+  const trimmed = pem.replace(/\\n/g, '\n').trim();
+
+  if (trimmed.includes('BEGIN ')) {
+    return trimmed;
+  }
+
+  // Accept base64 DER PKCS#8 private keys and convert them to PEM.
+  const looksBase64 = /^[A-Za-z0-9+/=\r\n]+$/.test(trimmed);
+  if (!looksBase64) {
+    return trimmed;
+  }
+
+  try {
+    const der = Buffer.from(trimmed.replace(/\s+/g, ''), 'base64');
+    const keyObj = crypto.createPrivateKey({ key: der, format: 'der', type: 'pkcs8' });
+    return keyObj.export({ format: 'pem', type: 'pkcs8' }).toString();
+  } catch {
+    return trimmed;
+  }
+};
 
 /**
  * Build a short-lived ES256 JWT for Coinbase CDP API keys.
@@ -80,53 +153,23 @@ const buildJwt = (
 };
 
 /* ------------------------------------------------------------------ */
-/*  Legacy HMAC-SHA256 authentication (Coinbase Pro / legacy keys)     */
-/* ------------------------------------------------------------------ */
-
-const buildHmacHeaders = (
-  auth: CoinbaseAuthMaterial,
-  method: string,
-  path: string,
-  body: string
-): Record<string, string> => {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const prehash = `${timestamp}${method.toUpperCase()}${path}${body}`;
-  const signature = crypto
-    .createHmac('sha256', Buffer.from(auth.apiSecret, 'base64'))
-    .update(prehash)
-    .digest('base64');
-
-  return {
-    'Content-Type': 'application/json',
-    'CB-ACCESS-KEY': auth.apiKey,
-    'CB-ACCESS-SIGN': signature,
-    'CB-ACCESS-TIMESTAMP': timestamp,
-    ...(auth.passphrase ? { 'CB-ACCESS-PASSPHRASE': auth.passphrase } : {})
-  };
-};
-
-/* ------------------------------------------------------------------ */
-/*  Unified header builder — auto-selects auth method                  */
+/*  CDP header builder                                                  */
 /* ------------------------------------------------------------------ */
 
 /**
  * Build auth headers for Coinbase API requests.
- * Automatically chooses between JWT (ES256) and legacy HMAC depending on the
- * key format.
+ * Enforces CDP JWT (ES256) credentials.
  */
 export const buildCoinbaseHeaders = (
   auth: CoinbaseAuthMaterial,
   method: string,
   path: string,
-  body: string
+  _body: string
 ): Record<string, string> => {
-  if (isCdpKey(auth)) {
-    const jwt = buildJwt(auth, method, 'api.coinbase.com', path);
-    return {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${jwt}`
-    };
-  }
-
-  return buildHmacHeaders(auth, method, path, body);
+  getCoinbaseAuthMode(auth);
+  const jwt = buildJwt(auth, method, 'api.coinbase.com', path);
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${jwt}`
+  };
 };

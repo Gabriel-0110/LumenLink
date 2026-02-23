@@ -11,5 +11,8 @@
 | List Accounts | GET | /api/v3/brokerage/accounts | Balances |
 
 Notes:
-- Exact auth header format can vary by account/app type.
+- LumenLink uses **CDP JWT (ES256)** auth for Coinbase Advanced Trade.
+- Credentials should be sourced from **1Password** (`SECRETS_PROVIDER=op|1password`).
+- `COINBASE_API_KEY` must be `organizations/{org_id}/apiKeys/{key_id}`.
+- `COINBASE_API_SECRET` must be PEM (`BEGIN PRIVATE KEY` or `BEGIN EC PRIVATE KEY`).
 - `src/exchanges/coinbase/auth.ts` centralizes signing/header logic.

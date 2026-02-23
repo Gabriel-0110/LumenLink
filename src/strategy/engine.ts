@@ -27,6 +27,7 @@ import { PerformanceAttribution } from './attribution/attribution.js';
 export interface StrategyEngineConfig {
   intervalMs: number;        // candle interval in ms
   feeRateBps?: number;
+  initialStage?: 'shadow' | 'paper' | 'small_live' | 'full_live';
 }
 
 export class StrategyEngine {
@@ -55,7 +56,9 @@ export class StrategyEngine {
     this.construction = new TradeConstructionEngine({ feeRateBps: feeRate });
     this.riskOverlay = new RiskOverlay();
     this.explainer = new DecisionExplainer();
-    this.governance = new StrategyGovernance();
+    this.governance = new StrategyGovernance(
+      config.initialStage ? { stage: config.initialStage } : undefined,
+    );
     this.attribution = new PerformanceAttribution();
   }
 
@@ -137,7 +140,7 @@ export class StrategyEngine {
     } else if (ensembleResult.direction === 0) {
       outcome = 'skipped';
       blockers.push('no_direction');
-    } else if (!forecast.exceedsCosts && forecast.calibrationScore > 0.3) {
+    } else if (!forecast.exceedsCosts && forecast.calibrationScore > 0.5) {
       outcome = 'blocked';
       blockers.push('edge_below_costs');
     } else if (overlayDecision.mode === 'no_new_entries' || overlayDecision.mode === 'flatten_only') {

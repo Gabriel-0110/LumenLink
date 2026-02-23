@@ -82,8 +82,10 @@ export class AlphaEnsemble {
     }
 
     const normalizedDirection = weightedDirection / totalWeight;
+    // Lower threshold from 0.3 to 0.15 — in ranging markets models often partially
+    // agree but can't reach 0.3 consensus, causing perpetual "no direction" blocks
     const direction: EnsembleResult['direction'] =
-      normalizedDirection > 0.3 ? 1 : normalizedDirection < -0.3 ? -1 : 0;
+      normalizedDirection > 0.15 ? 1 : normalizedDirection < -0.15 ? -1 : 0;
 
     const confidence = Math.min(1, weightedConfidence / totalWeight);
     const expectedEdgeBps = Math.round(weightedReturn / totalWeight);

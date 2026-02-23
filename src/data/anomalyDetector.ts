@@ -103,9 +103,11 @@ export class AnomalyDetector {
 
     if (body > 0 && totalWick / body > this.config.wickAnomalyRatio) {
       const ratio = totalWick / body;
+      // On 5m candles, doji patterns (small body, large wicks) are common and not anomalous
+      // Only flag as high severity at very extreme ratios (>25x)
       anomalies.push({
         type: 'wick_anomaly',
-        severity: ratio > 10 ? 'high' : 'medium',
+        severity: ratio > 25 ? 'high' : 'medium',
         message: `Extreme wicks: wick/body ratio ${ratio.toFixed(1)}x (possible manipulation or flash crash)`,
         value: ratio,
         threshold: this.config.wickAnomalyRatio,

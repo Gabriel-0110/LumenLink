@@ -307,6 +307,7 @@ const main = async (): Promise<void> => {
   const strategyEngine = new StrategyEngine({
     intervalMs: config.strategyIntervalMs,
     feeRateBps: config.gatekeeper.feeRateBps,
+    initialStage: config.strategyStage as 'shadow' | 'paper' | 'small_live' | 'full_live',
   });
   loops.setStrategyEngine(strategyEngine);
   logger.info('strategy engine initialized', {

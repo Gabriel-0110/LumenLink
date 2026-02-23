@@ -20,8 +20,8 @@ interface EdgeScorerConfig {
 }
 
 const DEFAULT_CONFIG: EdgeScorerConfig = {
-  feeRateBps: 60,              // 0.6% taker (Coinbase)
-  defaultSlippageBps: 10,
+  feeRateBps: 60,              // 0.6% taker (Coinbase), overridden by GK_FEE_RATE_BPS
+  defaultSlippageBps: 3,       // BTC-USD on Coinbase has tight spreads
   horizonCandles: 3,           // next 3 candles (~15m for 5m interval)
   minHistoryCandles: 60,
 };

@@ -58,7 +58,10 @@ export class TradingLoops {
 
   // Bug 4: Duplicate signal cooldown
   private readonly lastSignalTime = new Map<string, { action: string; timestamp: number }>();
-  private static readonly SIGNAL_COOLDOWN_MS = 300_000; // 5 minutes
+  private static readonly SIGNAL_COOLDOWN_MS = 120_000; // 2 minutes (was 5min — too slow for active trading)
+
+  // Track when positions were first observed (for time-based exit logic)
+  private readonly positionOpenTimes = new Map<string, number>();
 
   private latestSentiment?: SentimentData;
   private latestMarketOverview?: MarketOverview;
@@ -476,10 +479,63 @@ export class TradingLoops {
       });
 
       // Convert SELL→HOLD when flat (no position to sell) — avoids phantom sell deadlock
-      const hasPosition = this.snapshot.openPositions.some((p) => p.symbol === symbol && p.quantity > 0);
-      const signal = (rawSignal.action === 'SELL' && !hasPosition)
+      const existingPos = this.snapshot.openPositions.find((p) => p.symbol === symbol && p.quantity > 0);
+      const hasPosition = !!existingPos;
+      let signal = (rawSignal.action === 'SELL' && !hasPosition)
         ? { ...rawSignal, action: 'HOLD' as const, reason: `Flat (no position) — ${rawSignal.reason}` }
         : rawSignal;
+
+      // ── Position-aware exit logic ──────────────────────────────────────
+      // When holding a position, generate SELL signals based on P&L and time
+      // rather than waiting for the strategy to produce a strong bearish score.
+      if (hasPosition && existingPos && signal.action !== 'SELL') {
+        // Track position open time (first time we see this position)
+        if (!this.positionOpenTimes.has(symbol)) {
+          this.positionOpenTimes.set(symbol, Date.now());
+        }
+        const entryPrice = existingPos.avgEntryPrice;
+        const currentPrice = ticker.last;
+        const unrealizedPct = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0;
+        const positionAgeMs = Date.now() - (this.positionOpenTimes.get(symbol) ?? Date.now());
+        const positionAgeMin = positionAgeMs / 60_000;
+
+        // Take profit: +0.3% (with zero fees, this is meaningful profit)
+        if (unrealizedPct >= 0.3) {
+          signal = {
+            action: 'SELL' as const,
+            confidence: 0.85,
+            reason: `Take profit: +${unrealizedPct.toFixed(2)}% unrealized (entry $${entryPrice.toFixed(2)} → $${currentPrice.toFixed(2)})`,
+          };
+          this.logger.info('position exit: take profit', { symbol, unrealizedPct: unrealizedPct.toFixed(2), positionAgeMin: positionAgeMin.toFixed(0) });
+        }
+        // Stop loss: -0.5%
+        else if (unrealizedPct <= -0.5) {
+          signal = {
+            action: 'SELL' as const,
+            confidence: 0.9,
+            reason: `Stop loss: ${unrealizedPct.toFixed(2)}% unrealized (entry $${entryPrice.toFixed(2)} → $${currentPrice.toFixed(2)})`,
+          };
+          this.logger.info('position exit: stop loss', { symbol, unrealizedPct: unrealizedPct.toFixed(2), positionAgeMin: positionAgeMin.toFixed(0) });
+        }
+        // Time decay: if held > 30min and in any profit, take it
+        else if (positionAgeMin > 30 && unrealizedPct > 0.05) {
+          signal = {
+            action: 'SELL' as const,
+            confidence: 0.75,
+            reason: `Time decay exit: +${unrealizedPct.toFixed(2)}% after ${positionAgeMin.toFixed(0)}min (entry $${entryPrice.toFixed(2)})`,
+          };
+          this.logger.info('position exit: time decay', { symbol, unrealizedPct: unrealizedPct.toFixed(2), positionAgeMin: positionAgeMin.toFixed(0) });
+        }
+        // Stale position: held > 2 hours with near-zero P&L — free up capital
+        else if (positionAgeMin > 120 && Math.abs(unrealizedPct) < 0.2) {
+          signal = {
+            action: 'SELL' as const,
+            confidence: 0.7,
+            reason: `Stale position exit: ${unrealizedPct.toFixed(2)}% after ${positionAgeMin.toFixed(0)}min — freeing capital`,
+          };
+          this.logger.info('position exit: stale position', { symbol, unrealizedPct: unrealizedPct.toFixed(2), positionAgeMin: positionAgeMin.toFixed(0) });
+        }
+      }
 
       // Always log what the strategy decided (visible in logs for easy diagnosis)
       this.logger.info('strategy signal', { symbol, action: signal.action, confidence: signal.confidence?.toFixed(2), reason: signal.reason });
@@ -1045,6 +1101,7 @@ export class TradingLoops {
     existing.marketPrice = fillPrice;
     if (existing.quantity <= 1e-12) {
       this.snapshot.openPositions = positions.filter((p) => p.symbol !== symbol);
+      this.positionOpenTimes.delete(symbol);
       if (realized < 0) {
         this.snapshot.lastStopOutAtBySymbol[symbol] = Date.now();
       }

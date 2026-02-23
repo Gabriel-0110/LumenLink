@@ -23,10 +23,11 @@ export class RegimeAwareCompositeStrategy implements Strategy {
 
   private readonly regimeDetector = new RegimeDetector();
 
-  // Pre-instantiated strategy variants with 5m-tuned score thresholds
-  private readonly trendingStrong = new AdvancedCompositeStrategy({ minScoreThreshold: 1.5 }); // restored — 0.8 fired on thin confluence
-  private readonly trendingNormal = new AdvancedCompositeStrategy({ minScoreThreshold: 1.2 }); // was 2.0
-  private readonly breakoutStrict = new AdvancedCompositeStrategy({ minScoreThreshold: 2.0 }); // was 3.5
+  // Pre-instantiated strategy variants — lower thresholds for zero-fee trading (Coinbase One)
+  // With no round-trip fees, even small edges are profitable
+  private readonly trendingStrong = new AdvancedCompositeStrategy({ minScoreThreshold: 1.0 }); // was 1.5 — strong trend needs less confirmation
+  private readonly trendingNormal = new AdvancedCompositeStrategy({ minScoreThreshold: 0.8 }); // was 1.2 — moderate trend/ranging
+  private readonly breakoutStrict = new AdvancedCompositeStrategy({ minScoreThreshold: 1.5 }); // was 2.0 — breakouts still need confirmation
   private readonly rangingMeanRev = new RsiMeanReversionStrategy(14, 30, 70);
 
   onCandle(candle: Candle, context: StrategyContext): Signal {

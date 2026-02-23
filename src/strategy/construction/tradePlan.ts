@@ -35,19 +35,19 @@ interface ConstructionConfig {
 
 const DEFAULT_CONFIG: ConstructionConfig = {
   maxRiskPerTradePct: 2,
-  basePositionUsd: 200,
+  basePositionUsd: 500,
   minPositionUsd: 50,
-  maxPositionUsd: 500,
+  maxPositionUsd: 2500,
   preferLimitOrders: false,
   limitOffsetBps: 5,
   defaultStopBps: 150,
   defaultTargetBps: 300,
   trailingStopBps: 100,
   maxTimeInTradeMs: 4 * 60 * 60 * 1000, // 4 hours
-  maxExposureUsd: 1000,
-  perSymbolCapUsd: 500,
-  minEdgeBps: 30,
-  feeRateBps: 60,
+  maxExposureUsd: 2500,
+  perSymbolCapUsd: 2500,
+  minEdgeBps: 5,       // Low edge threshold for zero-fee trading
+  feeRateBps: 0,       // Coinbase One = zero fees (overridden by engine config)
 };
 
 export class TradeConstructionEngine {

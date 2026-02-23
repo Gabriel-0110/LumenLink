@@ -43,6 +43,7 @@ const rawSchema = z.object({
   RISK_MAX_OPEN_POSITIONS: z.coerce.number().int().positive().default(2),
   RISK_COOLDOWN_MINUTES: z.coerce.number().int().nonnegative().default(15),
   RISK_DEPLOY_PERCENT: z.string().optional(),
+  STRATEGY_STAGE: z.enum(['shadow', 'paper', 'small_live', 'full_live']).optional(),
 
   GUARD_MAX_SPREAD_BPS: z.string().optional(),
   GUARD_MAX_SLIPPAGE_BPS: z.string().optional(),
@@ -147,6 +148,8 @@ export const configSchema = rawSchema.transform((raw) => {
       cooldownMinutes: raw.RISK_COOLDOWN_MINUTES,
       deployPercent,
     },
+
+    strategyStage: raw.STRATEGY_STAGE ?? 'paper',
 
     guards: {
       maxSpreadBps,

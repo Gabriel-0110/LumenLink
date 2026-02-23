@@ -103,7 +103,7 @@ export class MomentumDivergenceModel implements AlphaModel {
     const atrBps = price > 0 ? (atr / price) * 10000 : 0;
     metrics.atrBps = atrBps;
 
-    const direction: AlphaVote['direction'] = score > 1.5 ? 1 : score < -1.5 ? -1 : 0;
+    const direction: AlphaVote['direction'] = score > 1.0 ? 1 : score < -1.0 ? -1 : 0;
     const confidence = Math.min(1, Math.abs(score) / 5);
     const expectedReturnBps = direction !== 0 ? Math.round(atrBps * confidence * 0.6) : 0;
     const expectedRiskBps = Math.round(atrBps * 1.5);

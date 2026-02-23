@@ -10,11 +10,13 @@ export default defineConfig({
     },
   },
   build: {
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         manualChunks: {
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-charts': ['recharts', 'lightweight-charts'],
+          'vendor-recharts': ['recharts'],
+          'vendor-lwcharts': ['lightweight-charts'],
         },
       },
     },

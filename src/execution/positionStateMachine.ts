@@ -42,7 +42,7 @@ export class PositionStateMachine extends EventEmitter {
   }
 
   /** Initialize positions table and hydrate from SQLite. */
-  async init(db: { exec: (sql: string) => void; prepare: (sql: string) => { all: (...args: unknown[]) => unknown[]; run: (...args: unknown[]) => void } }): Promise<void> {
+  async init(db: { exec: (sql: string) => void; prepare: (sql: string) => { all: (...args: unknown[]) => unknown[]; run: (...args: unknown[]) => unknown } }): Promise<void> {
     db.exec(`
       CREATE TABLE IF NOT EXISTS positions (
         id TEXT PRIMARY KEY,

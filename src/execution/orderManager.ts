@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
 import type { AppConfig } from '../config/types.js';
 import type { Logger } from '../core/logger.js';
 import type { Metrics } from '../core/metrics.js';
@@ -51,6 +52,24 @@ export class OrderManager {
   }): Promise<Order | undefined> {
     const { symbol, signal, ticker, riskDecision, currentPosition, availableCashUsd } = input;
     if (signal.action === 'HOLD') return undefined;
+
+    // DRY_RUN mode: log everything but place no real orders
+    if (this.config.dryRun) {
+      this.logger.info('DRY RUN — order would be placed (no execution)', {
+        symbol, action: signal.action,
+        confidence: signal.confidence,
+        reason: signal.reason,
+      });
+      this.metrics.increment('orders.dry_run_skipped');
+      return undefined;
+    }
+
+    // File-based emergency kill switch: touch ./KILL to halt orders instantly
+    if (fs.existsSync('./KILL')) {
+      this.logger.warn('EMERGENCY KILL FILE detected — all orders blocked. Remove ./KILL to resume.', { symbol });
+      this.metrics.increment('orders.file_kill_blocked');
+      return undefined;
+    }
 
     // Check kill switch
     if (this.killSwitch?.isTriggered()) {

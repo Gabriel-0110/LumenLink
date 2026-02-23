@@ -56,6 +56,7 @@ export interface Order {
   status: 'pending' | 'open' | 'filled' | 'canceled' | 'rejected';
   filledQuantity: number;
   avgFillPrice?: number;
+  totalFees?: number;       // exchange fees (e.g. Coinbase total_fees)
   reason?: string | null;
   createdAt: number;
   updatedAt: number;

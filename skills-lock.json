@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "skills": {
+    "anthropics-agent-identifier": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "ae2d0a7dbbaabe6b4f52b574c75c7074d74f09d2d0ff918d8fa155c76544a60a"
+    },
+    "anthropics-analyzing-financial-statements": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "a5279743da3e375e45743369bebb93df9bc0e1b2ed69779726fc5e6224e06c99"
+    },
+    "anthropics-claude-automation-recommender": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "f4508316c7b10f4fabf649d90868b8551238ef7686c99a13c999d103a4fb88e8"
+    },
+    "anthropics-creating-financial-models": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "a2d9a071239bc8610ba777469430cb3b04b429d083590f84dd88708f4e869387"
+    },
+    "anthropics-skill-development": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "aef19341da295f83644071ca2a0948369eab7c3e163bd785b08d7826029795e1"
+    },
+    "davila7-ceo-advisor": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "8565b5c692dd0ede8a10f9a0867ebba7e79bc7c44645abe0ab447395ad46c6a8"
+    },
+    "davila7-market-research-reports": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "acea28146fbed766296d72a8e0b31a26cbcd7c23495cc004c4cab1142974c323"
+    },
+    "github-web-design-reviewer": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "e6e139ee2b850a64841a9293f3f93f2e3555ddef3d0525e061c22a5feff6e0e2"
+    },
+    "langchain-ai-web-research": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "4a517d9f2d42d9bd5ac36cee2b30fb4ba989b526ed9a27744b3548af14479b93"
+    },
+    "nextlevelbuilder-ui-ux-pro-max": {
+      "source": "smithery/ai",
+      "sourceType": "well-known",
+      "computedHash": "047974cdd8a0c68e96559f0260dfc76a8b2cf19c3adb2cd4a8997dfe70436d35"
+    }
+  }
+}

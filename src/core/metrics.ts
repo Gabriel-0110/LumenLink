@@ -1,6 +1,7 @@
 export interface Metrics {
   increment(name: string, value?: number, tags?: Record<string, string>): void;
   gauge(name: string, value: number, tags?: Record<string, string>): void;
+  snapshot(): { counters: Record<string, number>; gauges: Record<string, number> };
 }
 
 export class InMemoryMetrics implements Metrics {

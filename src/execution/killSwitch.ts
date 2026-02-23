@@ -30,7 +30,7 @@ export class KillSwitch {
   ) {}
 
   /** Initialize table and hydrate state from SQLite. */
-  init(db: { exec: (sql: string) => void; prepare: (sql: string) => { get: () => unknown; run: (...args: unknown[]) => void } }): void {
+  init(db: { exec: (sql: string) => void; prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => unknown } }): void {
     db.exec(`
       CREATE TABLE IF NOT EXISTS kill_switch (
         id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -148,7 +148,7 @@ export class KillSwitch {
   }
 
   /** Persist current state to SQLite. */
-  persist(db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } }): void {
+  persist(db: { prepare: (sql: string) => { run: (...args: unknown[]) => unknown } }): void {
     db.prepare(`
       UPDATE kill_switch SET triggered = ?, reason = ?, triggered_at = ?, consecutive_losses = ?, spread_violations = ? WHERE id = 1
     `).run(

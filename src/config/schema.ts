@@ -35,6 +35,7 @@ const rawSchema = z.object({
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   ALLOW_LIVE_TRADING: z.string().optional(),
   KILL_SWITCH: z.string().optional(),
+  DRY_RUN: z.string().optional(),
 
   RISK_MAX_DAILY_LOSS_USD: z.string().optional(),
   RISK_MAX_POSITION_USD: z.string().optional(),
@@ -78,6 +79,14 @@ const rawSchema = z.object({
   SECRET_ID_OPENAI_KEY: z.string().default('prod/ai/openai/key'),
   SECRET_ID_ETHERSCAN_KEY: z.string().default('prod/data/etherscan/key'),
   
+  // Gatekeeper tuning (Phase 2/3 risk gates)
+  GK_FEE_RATE_BPS: z.string().optional(),
+  GK_SLIPPAGE_BPS: z.string().optional(),
+  GK_SAFETY_MARGIN_BPS: z.string().optional(),
+  GK_MIN_NOTIONAL_USD: z.string().optional(),
+  GK_SELL_COOLDOWN_MIN: z.string().optional(),
+  GK_CHOP_ADX_THRESHOLD: z.string().optional(),
+
   // Kill switch thresholds
   KILL_SWITCH_MAX_DRAWDOWN_PCT: z.string().optional(),
   KILL_SWITCH_MAX_CONSECUTIVE_LOSSES: z.string().optional(),
@@ -126,6 +135,7 @@ export const configSchema = rawSchema.transform((raw) => {
     pollIntervalMs: raw.POLL_INTERVAL_MS,
     allowLiveTrading: parseBoolean(raw.ALLOW_LIVE_TRADING, false),
     killSwitch: parseBoolean(raw.KILL_SWITCH, true),
+    dryRun: parseBoolean(raw.DRY_RUN, false),
 
     risk: {
       maxDailyLossUsd,
@@ -139,6 +149,15 @@ export const configSchema = rawSchema.transform((raw) => {
       maxSpreadBps,
       maxSlippageBps,
       minVolume
+    },
+
+    gatekeeper: {
+      feeRateBps: parseNumber(raw.GK_FEE_RATE_BPS, 240),
+      estimatedSlippageBps: parseNumber(raw.GK_SLIPPAGE_BPS, 5),
+      safetyMarginBps: parseNumber(raw.GK_SAFETY_MARGIN_BPS, 20),
+      minNotionalUsd: parseNumber(raw.GK_MIN_NOTIONAL_USD, 50),
+      sellCooldownMinutes: parseNumber(raw.GK_SELL_COOLDOWN_MIN, 15),
+      chopAdxThreshold: parseNumber(raw.GK_CHOP_ADX_THRESHOLD, 25),
     },
 
     data: {

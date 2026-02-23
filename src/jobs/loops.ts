@@ -11,8 +11,14 @@ import type { Strategy } from '../strategies/interface.js';
 import type { CandleStore } from '../data/candleStore.js';
 import type { SentimentService, SentimentData } from '../data/sentimentService.js';
 import type { OnChainService, MarketOverview } from '../data/onchainService.js';
+import type { KillSwitch } from '../execution/killSwitch.js';
 import { TrailingStopManager } from '../execution/trailingStop.js';
 import { MultiTimeframeAnalyzer } from '../strategies/multiTimeframe.js';
+import type { TradeJournal, JournalEntry } from '../data/tradeJournal.js';
+import type { InventoryManager } from '../execution/inventoryManager.js';
+import type { FillReconciler } from '../execution/fillReconciler.js';
+import type { TradeGatekeeper } from '../risk/tradeGatekeeper.js';
+import type { HealthReport } from '../core/healthReport.js';
 import { ATR } from 'technicalindicators';
 
 export interface RuntimeState {
@@ -54,6 +60,7 @@ export class TradingLoops {
   // Trailing stops and multi-timeframe analysis
   private readonly trailingStopManager: TrailingStopManager;
   private readonly multiTimeframeAnalyzer: MultiTimeframeAnalyzer;
+  private peakEquityUsd = 0;
 
   constructor(
     private readonly config: AppConfig,
@@ -66,7 +73,12 @@ export class TradingLoops {
     private readonly alert: AlertService,
     private readonly logger: Logger,
     private readonly sentimentService?: SentimentService,
-    private readonly onChainService?: OnChainService
+    private readonly onChainService?: OnChainService,
+    private readonly killSwitch?: KillSwitch,
+    private readonly journal?: TradeJournal,
+    private readonly inventory?: InventoryManager,
+    private readonly gatekeeper?: TradeGatekeeper,
+    private readonly healthReport?: HealthReport,
   ) {
     // Initialize trailing stop manager with config
     this.trailingStopManager = new TrailingStopManager({
@@ -77,6 +89,26 @@ export class TradingLoops {
     
     // Initialize multi-timeframe analyzer
     this.multiTimeframeAnalyzer = new MultiTimeframeAnalyzer();
+  }
+
+  /**
+   * Optional fill reconciler — set after construction when auth is available.
+   */
+  private fillReconciler?: FillReconciler;
+  setFillReconciler(fr: FillReconciler): void { this.fillReconciler = fr; }
+
+  /**
+   * Hydrate snapshot from InventoryManager (Phase 1A).
+   * Called instead of the old hydrateFromExchange when InventoryManager is present.
+   */
+  async hydrateFromInventory(inv: InventoryManager): Promise<void> {
+    const state = inv.getState();
+    this.snapshot.cashUsd = state.cashUsd;
+    this.snapshot.openPositions = inv.getPositions();
+    this.logger.info('[loops] snapshot hydrated from InventoryManager', {
+      cashUsd: state.cashUsd.toFixed(2),
+      positions: this.snapshot.openPositions.length,
+    });
   }
 
   /**
@@ -342,6 +374,14 @@ export class TradingLoops {
   }
 
   async strategyLoop(): Promise<void> {
+    // Kill switch check — halt all trading if triggered
+    if (this.killSwitch?.isTriggered()) {
+      this.logger.warn('strategy loop skipped — kill switch active', {
+        reason: this.killSwitch.getState().reason,
+      });
+      return;
+    }
+
     // Display dashboard at the start of each strategy cycle
     await this.displayPaperTradingDashboard();
 
@@ -385,6 +425,66 @@ export class TradingLoops {
         continue;
       }
 
+      // ── Phase 1B: Hard inventory guard (SELL only) ────────────
+      if (signal.action === 'SELL' && this.inventory) {
+        const pos = this.snapshot.openPositions.find(p => p.symbol === symbol);
+        const posQty = pos?.quantity ?? 0;
+        const deployPct = this.config.risk.deployPercent ?? 0.5;
+        const desiredSellQty = posQty * deployPct;
+        const invCheck = this.inventory.canSell(symbol, desiredSellQty);
+        if (!invCheck.allowed) {
+          this.logger.warn('SELL blocked by inventory guard', {
+            symbol, reason: invCheck.reason, available: invCheck.availableQty.toFixed(8),
+          });
+          this.healthReport?.recordInventoryBlock();
+          continue;
+        }
+      }
+
+      // ── Phase 2: Trade Gatekeeper (chop guard, oversold veto, min edge, min notional) ──
+      if (this.gatekeeper) {
+        const pos = this.snapshot.openPositions.find(p => p.symbol === symbol);
+        const gateDecision = this.gatekeeper.evaluate({
+          signal,
+          symbol,
+          ticker,
+          candles,
+          positionQty: pos?.quantity ?? 0,
+          nowMs: Date.now(),
+        });
+
+        // ── #8: Always log edge/cost breakdown for every SELL evaluation ──
+        if (gateDecision.edgeAnalysis) {
+          const ea = gateDecision.edgeAnalysis;
+          this.logger.info('trade edge analysis', {
+            symbol,
+            action: signal.action,
+            expectedEdgeBps: ea.expectedMoveBps,
+            totalCostBps: ea.totalCostBps,
+            feesBps: ea.feesBps,
+            slippageBps: ea.slippageBps,
+            safetyBps: ea.safetyBps,
+            atr: ea.atr?.toFixed(2),
+            profitableAfterFees: ea.profitable,
+            gateDecision: gateDecision.allowed ? 'PASS' : 'BLOCK',
+            blockReason: gateDecision.allowed ? undefined : gateDecision.reason,
+            gate: gateDecision.gate,
+          });
+          this.healthReport?.recordEdgeEval(ea.profitable);
+        }
+
+        if (!gateDecision.allowed) {
+          this.logger.info('trade gatekeeper blocked signal', {
+            symbol,
+            action: signal.action,
+            reason: gateDecision.reason,
+            gate: gateDecision.gate,
+          });
+          if (gateDecision.gate) this.healthReport?.recordGateBlock(gateDecision.gate);
+          continue;
+        }
+      }
+
       // Bug 4: Duplicate signal cooldown
       const cooldownKey = `${symbol}:${signal.action}`;
       const lastExec = this.lastSignalTime.get(cooldownKey);
@@ -397,16 +497,34 @@ export class TradingLoops {
         continue;
       }
 
+      // ── Phase 1C: Reserve inventory before placing sell ───────
+      const pos = this.snapshot.openPositions.find(p => p.symbol === symbol);
+      let sellQtyReserved = 0;
+      if (signal.action === 'SELL' && this.inventory && pos) {
+        const deployPct = this.config.risk.deployPercent ?? 0.5;
+        const desiredSellQty = pos.quantity * deployPct;
+        sellQtyReserved = this.inventory.clampSellQty(symbol, desiredSellQty);
+        if (sellQtyReserved <= 0) {
+          this.logger.warn('SELL skipped — no inventory after clamping', { symbol });
+          continue;
+        }
+        this.inventory.reserve(symbol, sellQtyReserved, `pre-order:${Date.now()}`);
+      }
+
       let order: Awaited<ReturnType<typeof this.orderManager.submitSignal>>;
       try {
         order = await this.orderManager.submitSignal({
           symbol,
           signal,
           ticker,
-          currentPosition: this.snapshot.openPositions.find(p => p.symbol === symbol),
-          availableCashUsd: this.snapshot.cashUsd,
+          currentPosition: pos,
+          availableCashUsd: this.inventory?.getCashUsd() ?? this.snapshot.cashUsd,
         });
       } catch (err) {
+        // ── Phase 1C: Release reservation on order failure ──
+        if (sellQtyReserved > 0 && this.inventory) {
+          this.inventory.releaseReservation(symbol, sellQtyReserved, `failed-order:${Date.now()}`);
+        }
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('INSUFFICIENT_FUND')) {
           this.logger.warn('order rejected — insufficient funds', {
@@ -419,29 +537,112 @@ export class TradingLoops {
         }
         continue;
       }
-      if (order) {
-        this.lastSignalTime.set(cooldownKey, { action: signal.action, timestamp: Date.now() });
-        this.applyOrderToSnapshot(order.symbol, order.side, order.filledQuantity, order.avgFillPrice ?? ticker.last);
-        
-        // Handle trailing stops for new positions
-        if (order.side === 'buy') {
-          this.trailingStopManager.openPosition(symbol, order.avgFillPrice ?? ticker.last);
-          this.logger.info('trailing stop registered', {
-            symbol,
-            entryPrice: order.avgFillPrice ?? ticker.last,
-            orderId: order.orderId
-          });
-        } else if (order.side === 'sell') {
-          this.trailingStopManager.closePosition(symbol);
-          this.logger.info('trailing stop closed', { symbol, orderId: order.orderId });
+
+      if (!order) {
+        // Release reservation if no order was placed (e.g. orderManager returned undefined)
+        if (sellQtyReserved > 0 && this.inventory) {
+          this.inventory.releaseReservation(symbol, sellQtyReserved, `no-order:${Date.now()}`);
         }
-        
-        await this.alert.notify('Order submitted', `${symbol} ${signal.action} (${signal.reason})`, {
-          orderId: order.orderId,
-          clientOrderId: order.clientOrderId,
-          mode: this.config.mode
-        });
+        continue;
       }
+
+      this.lastSignalTime.set(cooldownKey, { action: signal.action, timestamp: Date.now() });
+      this.healthReport?.recordOrderPlaced();
+
+      // Capture entry price BEFORE applyOrderToSnapshot removes the position on full exits
+      const existingBeforeFill = this.snapshot.openPositions.find(p => p.symbol === symbol);
+      const entryPriceBeforeFill = existingBeforeFill?.avgEntryPrice;
+
+      // ── Phase 1D: Get actual fees from fills, not estimation ──
+      let fees = order.totalFees ?? 0;
+      if (this.fillReconciler && order.status === 'filled') {
+        try {
+          const actualFees = await this.fillReconciler.getActualFees(order.orderId);
+          if (actualFees) {
+            fees = actualFees.totalFees;
+            this.logger.info('fees resolved from Coinbase fills', {
+              orderId: order.orderId,
+              orderFees: order.totalFees?.toFixed(4),
+              fillFees: fees.toFixed(4),
+            });
+          }
+        } catch (err) {
+          this.logger.warn('fee resolution failed — using order-level fees', {
+            orderId: order.orderId,
+            err: String(err),
+          });
+        }
+      }
+
+      const fillPrice = order.avgFillPrice ?? ticker.last;
+
+      // ── Phase 1C: Confirm fill in inventory ───────────────────
+      if (this.inventory && order.status === 'filled') {
+        this.inventory.confirmFill(order, fillPrice, fees);
+        this.healthReport?.recordOrderFilled(fees);
+      } else if (sellQtyReserved > 0 && this.inventory && order.status !== 'filled') {
+        // Order didn't fill — release reservation
+        this.inventory.releaseReservation(symbol, sellQtyReserved, `unfilled:${order.orderId}`);
+      }
+
+      this.applyOrderToSnapshot(order.symbol, order.side, order.filledQuantity, fillPrice, fees);
+
+      // ── Phase 2.1: Record sell in gatekeeper for chop guard ───
+      if (order.side === 'sell' && this.gatekeeper) {
+        this.gatekeeper.recordSell(symbol, fillPrice, Date.now());
+      }
+
+      // Record to trade journal
+      if (this.journal && order.status === 'filled') {
+        const slippageBps = ticker.last > 0 ? ((fillPrice - ticker.last) / ticker.last) * 10_000 : 0;
+        const isExit = order.side === 'sell';
+        const realized = isExit ? (fillPrice - (entryPriceBeforeFill ?? fillPrice)) * order.filledQuantity : undefined;
+        const realizedPct = isExit && entryPriceBeforeFill ? ((fillPrice - entryPriceBeforeFill) / entryPriceBeforeFill) * 100 : undefined;
+        try {
+          this.journal.record({
+            tradeId: order.clientOrderId,
+            symbol: order.symbol,
+            side: order.side,
+            action: isExit ? 'exit' : 'entry',
+            strategy: this.config.strategy,
+            orderId: order.orderId,
+            requestedPrice: ticker.last,
+            filledPrice: fillPrice,
+            slippageBps: Math.abs(slippageBps),
+            quantity: order.filledQuantity,
+            notionalUsd: order.filledQuantity * fillPrice,
+            commissionUsd: fees,
+            confidence: signal.confidence,
+            reason: signal.reason,
+            riskDecision: 'allowed',
+            realizedPnlUsd: realized,
+            realizedPnlPct: realizedPct,
+            mode: this.config.mode,
+            timestamp: Date.now(),
+          });
+        } catch (err) {
+          this.logger.warn('failed to record trade journal entry', { orderId: order.orderId, err: String(err) });
+        }
+      }
+
+      // Handle trailing stops for new positions
+      if (order.side === 'buy') {
+        this.trailingStopManager.openPosition(symbol, order.avgFillPrice ?? ticker.last);
+        this.logger.info('trailing stop registered', {
+          symbol,
+          entryPrice: order.avgFillPrice ?? ticker.last,
+          orderId: order.orderId
+        });
+      } else if (order.side === 'sell') {
+        this.trailingStopManager.closePosition(symbol);
+        this.logger.info('trailing stop closed', { symbol, orderId: order.orderId });
+      }
+      
+      await this.alert.notify('Order submitted', `${symbol} ${signal.action} (${signal.reason})`, {
+        orderId: order.orderId,
+        clientOrderId: order.clientOrderId,
+        mode: this.config.mode
+      });
     }
   }
 
@@ -588,7 +789,7 @@ export class TradingLoops {
       if (decision.allowed) {
         const order = await this.orderManager.submitSignal({ symbol, signal: trailingStopSignal, ticker });
         if (order) {
-          this.applyOrderToSnapshot(order.symbol, order.side, order.filledQuantity, order.avgFillPrice ?? ticker.last);
+          this.applyOrderToSnapshot(order.symbol, order.side, order.filledQuantity, order.avgFillPrice ?? ticker.last, order.totalFees ?? 0);
           this.trailingStopManager.closePosition(symbol);
           
           await this.alert.notify('Trailing Stop Triggered', result.reason, {
@@ -638,12 +839,15 @@ export class TradingLoops {
     symbol: string,
     side: 'buy' | 'sell',
     quantity: number,
-    fillPrice: number
+    fillPrice: number,
+    fees: number = 0
   ): void {
     const positions = this.snapshot.openPositions;
     const existing = positions.find((p) => p.symbol === symbol);
+    const fillValue = quantity * fillPrice;
 
     if (side === 'buy') {
+      this.snapshot.cashUsd -= fillValue + fees;
       if (!existing) {
         positions.push({
           symbol,
@@ -664,6 +868,7 @@ export class TradingLoops {
     if (!existing) return;
     const closeQty = Math.min(existing.quantity, quantity);
     const realized = (fillPrice - existing.avgEntryPrice) * closeQty;
+    this.snapshot.cashUsd += closeQty * fillPrice - fees;
     this.snapshot.realizedPnlUsd += realized;
     existing.quantity -= closeQty;
     existing.marketPrice = fillPrice;
@@ -672,6 +877,15 @@ export class TradingLoops {
       if (realized < 0) {
         this.snapshot.lastStopOutAtBySymbol[symbol] = Date.now();
       }
+    }
+
+    // Kill switch: record trade result and check drawdown
+    if (this.killSwitch) {
+      this.killSwitch.recordTradeResult(realized >= 0);
+      const currentEquity = this.snapshot.cashUsd +
+        this.snapshot.openPositions.reduce((s, p) => s + p.quantity * p.marketPrice, 0);
+      this.peakEquityUsd = Math.max(this.peakEquityUsd, currentEquity);
+      this.killSwitch.checkDrawdown(currentEquity, this.peakEquityUsd);
     }
   }
 }

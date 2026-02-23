@@ -102,11 +102,35 @@ export class CoinbaseAdapter implements ExchangeAdapter {
       headers
     );
 
-    if (!data.success || !data.order_id) {
-      throw new Error(`Coinbase order rejected: ${data.error_response?.error ?? 'unknown_error'}`);
+    if (!data.success) {
+      const errMsg = data.error_response?.error
+        ?? data.error_response?.message
+        ?? data.error_response?.new_order_failure_reason
+        ?? data.error_response?.preview_failure_reason
+        ?? JSON.stringify(data.error_response ?? data);
+      throw new Error(`Coinbase order rejected: ${errMsg}`);
     }
 
-    return this.getOrder(data.order_id);
+    const orderId = data.order_id ?? data.success_response?.order_id;
+    if (!orderId) {
+      throw new Error(`Coinbase order succeeded but no order_id in response: ${JSON.stringify(data)}`);
+    }
+
+    // Poll for fill status — market IOC orders fill within milliseconds but
+    // the first getOrder call may race against settlement.
+    const maxAttempts = 10;
+    const pollDelayMs = 250;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const order = await this.getOrder(orderId);
+      if (order.status === 'filled' || order.status === 'canceled' || order.status === 'rejected') {
+        return order;
+      }
+      if (attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, pollDelayMs));
+      }
+    }
+    // Return whatever we have after exhausting retries
+    return this.getOrder(orderId);
   }
 
   async cancelOrder(orderId: string): Promise<void> {
@@ -138,6 +162,7 @@ export class CoinbaseAdapter implements ExchangeAdapter {
       status: toOrderStatus(o.status),
       filledQuantity: Number(o.filled_size || '0'),
       avgFillPrice: Number(o.average_filled_price ?? 0) || undefined,
+      totalFees: Number(o.total_fees || '0') || undefined,
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -170,6 +195,7 @@ export class CoinbaseAdapter implements ExchangeAdapter {
         status: toOrderStatus(o.status),
         filledQuantity: Number(o.filled_size || '0'),
         avgFillPrice: Number(o.average_filled_price ?? 0) || undefined,
+        totalFees: Number(o.total_fees || '0') || undefined,
         createdAt: Date.now(),
         updatedAt: Date.now()
       };

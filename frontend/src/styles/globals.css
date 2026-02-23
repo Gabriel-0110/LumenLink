@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: #0a0e17;
+    color: #e2e8f0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #111827;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-border rounded-card p-5 relative overflow-hidden;
+  }
+
+  .card-label {
+    @apply text-[0.68rem] uppercase tracking-wider text-muted mb-1.5 font-semibold;
+  }
+
+  .card-value {
+    @apply text-2xl font-bold leading-none;
+  }
+
+  .card-sub {
+    @apply text-xs text-muted mt-1;
+  }
+
+  .stat-accent {
+    @apply absolute top-0 left-0 w-[3px] h-full rounded-l-card;
+  }
+
+  .pill {
+    @apply inline-flex items-center px-2 py-0.5 rounded-pill text-[0.7rem] font-bold whitespace-nowrap;
+  }
+
+  .pill-buy {
+    @apply bg-profit/10 text-profit;
+  }
+
+  .pill-sell {
+    @apply bg-loss/10 text-loss;
+  }
+
+  .pill-hold {
+    @apply bg-muted/20 text-muted;
+  }
+
+  .meter-bar {
+    @apply h-1.5 bg-surface2 rounded overflow-hidden;
+  }
+
+  .meter-fill {
+    @apply h-full rounded transition-all duration-500 ease-out;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-input
+           bg-brand text-bg font-semibold text-sm
+           hover:bg-brand/90 active:bg-brand/80
+           transition-colors cursor-pointer
+           min-h-[44px] min-w-[44px];
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-input
+           bg-loss text-white font-semibold text-sm
+           hover:bg-loss/90 active:bg-loss/80
+           transition-colors cursor-pointer
+           min-h-[44px] min-w-[44px];
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-input
+           bg-transparent text-muted font-medium text-sm
+           border border-border
+           hover:bg-surface2 hover:text-text
+           transition-colors cursor-pointer
+           min-h-[44px] min-w-[44px];
+  }
+
+  .section-title {
+    @apply flex items-center gap-3 text-[0.72rem] uppercase tracking-wider
+           text-muted font-semibold mb-3;
+  }
+
+  .section-title::after {
+    content: '';
+    @apply flex-1 h-px bg-border;
+  }
+
+  .table-wrap {
+    @apply overflow-x-auto rounded-card border border-border;
+  }
+}
+
+@layer utilities {
+  .text-profit { color: #10b981; }
+  .text-loss { color: #ef4444; }
+  .text-warning { color: #f59e0b; }
+  .text-brand { color: #06b6d4; }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .animate-pulse-dot {
+    animation: pulse-dot 2s infinite;
+  }
+}

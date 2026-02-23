@@ -20,10 +20,17 @@ export const createMockLogger = (): Logger => ({
 
 export const createMockMetrics = (): Metrics & { counters: Map<string, number> } => {
   const counters = new Map<string, number>();
+  const gauges = new Map<string, number>();
   return {
     counters,
     increment(name: string, value = 1) { counters.set(name, (counters.get(name) ?? 0) + value); },
-    gauge() {},
+    gauge(name: string, value: number) { gauges.set(name, value); },
+    snapshot() {
+      return {
+        counters: Object.fromEntries(counters.entries()),
+        gauges: Object.fromEntries(gauges.entries()),
+      };
+    },
   };
 };
 

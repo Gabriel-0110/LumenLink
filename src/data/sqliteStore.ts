@@ -5,6 +5,11 @@ import type { CandleStore } from './candleStore.js';
 export class SqliteStore implements CandleStore {
   private readonly db: Database.Database;
 
+  /** Expose the underlying database for modules that need direct table access (e.g. KillSwitch, PositionStateMachine). */
+  getDatabase(): Database.Database {
+    return this.db;
+  }
+
   constructor(dbPath = './data/runtime.sqlite') {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');

@@ -10,6 +10,7 @@ import {
   GitCompare,
   BarChart3,
   Bell,
+  BellRing,
 } from 'lucide-react';
 import type { ExecutionTab } from '../../types/execution';
 
@@ -24,6 +25,7 @@ const tabs: ExecutionTab[] = [
   { label: 'Reconciliation', path: '/execution/reconciliation', icon: <GitCompare size={15} /> },
   { label: 'Performance', path: '/execution/performance', icon: <BarChart3 size={15} /> },
   { label: 'Alerts', path: '/execution/alerts', icon: <Bell size={15} /> },
+  { label: 'Notifications', path: '/execution/notifications', icon: <BellRing size={15} /> },
 ];
 
 export function ExecutionTabNav() {

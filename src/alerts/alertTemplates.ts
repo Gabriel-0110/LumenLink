@@ -5,9 +5,7 @@
  * Used by the alert multiplexer to send consistent notifications.
  */
 
-import type { AlertService } from './interface.js';
-
-export type AlertSeverity = 'info' | 'warning' | 'critical';
+import type { AlertSeverity } from './types.js';
 
 export interface AlertTemplate {
   title: string;
@@ -17,7 +15,7 @@ export interface AlertTemplate {
 
 const SEVERITY_EMOJI: Record<AlertSeverity, string> = {
   info: 'ℹ️',
-  warning: '⚠️',
+  warn: '⚠️',
   critical: '🚨',
 };
 
@@ -34,9 +32,9 @@ export const alertTemplates = {
 
   orderRejected(symbol: string, reason: string, blockedBy: string): AlertTemplate {
     return {
-      title: `${SEVERITY_EMOJI.warning} Order Rejected`,
+      title: `${SEVERITY_EMOJI.warn} Order Rejected`,
       message: `${symbol}: ${reason}\nBlocked by: ${blockedBy}`,
-      severity: 'warning',
+      severity: 'warn',
     };
   },
 
@@ -66,17 +64,17 @@ export const alertTemplates = {
 
   volatilityHalt(symbol: string, atr: number, threshold: number): AlertTemplate {
     return {
-      title: `${SEVERITY_EMOJI.warning} Volatility Circuit Breaker`,
+      title: `${SEVERITY_EMOJI.warn} Volatility Circuit Breaker`,
       message: `${symbol}: ATR spike detected (${atr.toFixed(2)}x median, threshold: ${threshold}x)\nTrading paused.`,
-      severity: 'warning',
+      severity: 'warn',
     };
   },
 
   eventLockout(eventName: string, minutesAway: number): AlertTemplate {
     return {
-      title: `${SEVERITY_EMOJI.warning} Event Lockout Active`,
+      title: `${SEVERITY_EMOJI.warn} Event Lockout Active`,
       message: `${eventName} in ${minutesAway} min.\nTrading paused until lockout window ends.`,
-      severity: 'warning',
+      severity: 'warn',
     };
   },
 
@@ -116,7 +114,7 @@ export const alertTemplates = {
     return {
       title: `${emoji} Sentiment: ${label}`,
       message: `Fear & Greed Index: ${fearGreedIndex}/100\n${fearGreedIndex <= 25 ? 'Extreme fear — potential buy zone' : fearGreedIndex >= 75 ? 'Extreme greed — caution advised' : 'Neutral sentiment'}`,
-      severity: fearGreedIndex <= 20 || fearGreedIndex >= 80 ? 'warning' : 'info',
+      severity: fearGreedIndex <= 20 || fearGreedIndex >= 80 ? 'warn' : 'info',
     };
   },
 
@@ -132,26 +130,7 @@ export const alertTemplates = {
     return {
       title: `🛑 LumenLink Stopped`,
       message: `Reason: ${reason}`,
-      severity: 'warning',
+      severity: 'warn',
     };
   },
 };
-
-// ── Alert Multiplexer with Severity Filtering ───────────────────────
-
-export class AlertMultiplexer implements AlertService {
-  constructor(
-    private readonly services: AlertService[],
-    private readonly minSeverity: AlertSeverity = 'info',
-  ) {}
-
-  async notify(title: string, message: string, context?: Record<string, unknown>): Promise<void> {
-    await Promise.allSettled(this.services.map(s => s.notify(title, message, context)));
-  }
-
-  async sendTemplate(template: AlertTemplate, context?: Record<string, unknown>): Promise<void> {
-    const severityOrder: Record<AlertSeverity, number> = { info: 0, warning: 1, critical: 2 };
-    if (severityOrder[template.severity] < severityOrder[this.minSeverity]) return;
-    await this.notify(template.title, template.message, { ...context, severity: template.severity });
-  }
-}

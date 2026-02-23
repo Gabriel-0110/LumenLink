@@ -3,6 +3,8 @@ import type { AccountSnapshot, Candle, Position } from '../core/types.js';
 import type { Logger } from '../core/logger.js';
 import type { ExchangeAdapter } from '../exchanges/adapter.js';
 import type { AlertService } from '../alerts/interface.js';
+import type { NotificationRouter } from '../alerts/notificationRouter.js';
+import { alertTemplates } from '../alerts/alertTemplates.js';
 import { MarketDataService } from '../data/marketDataService.js';
 import { OrderManager } from '../execution/orderManager.js';
 import { Reconciler } from '../execution/reconciler.js';
@@ -692,11 +694,19 @@ export class TradingLoops {
         this.logger.info('trailing stop closed', { symbol, orderId: order.orderId });
       }
       
-      await this.alert.notify('Order submitted', `${symbol} ${signal.action} (${signal.reason})`, {
-        orderId: order.orderId,
-        clientOrderId: order.clientOrderId,
-        mode: this.config.mode
-      });
+      const router = this.alert as NotificationRouter;
+      if (typeof router.routeTemplate === 'function') {
+        await router.routeTemplate(
+          'orderFilled',
+          alertTemplates.orderFilled(symbol, signal.action, order.filledQuantity, order.avgFillPrice ?? ticker.last, this.config.mode),
+          'trading_loop',
+          { orderId: order.orderId, clientOrderId: order.clientOrderId },
+        );
+      } else {
+        await this.alert.notify('Order submitted', `${symbol} ${signal.action} (${signal.reason})`, {
+          orderId: order.orderId, clientOrderId: order.clientOrderId, mode: this.config.mode,
+        });
+      }
     }
   }
 
@@ -776,20 +786,20 @@ export class TradingLoops {
       if (sentimentChanged && this.latestSentiment) {
         const isExtreme = this.latestSentiment.fearGreedIndex <= 25 || this.latestSentiment.fearGreedIndex >= 75;
         if (isExtreme) {
-          await this.alert.notify(
-            'Market Sentiment Alert',
-            `Fear & Greed Index: ${this.latestSentiment.fearGreedIndex} (${this.latestSentiment.fearGreedLabel})${
-              this.latestSentiment.newsScore !== undefined 
-                ? ` | News Sentiment: ${(this.latestSentiment.newsScore > 0 ? '+' : '')}${(this.latestSentiment.newsScore * 100).toFixed(1)}%`
-                : ''
-            }`,
-            {
-              fearGreedIndex: this.latestSentiment.fearGreedIndex,
-              fearGreedLabel: this.latestSentiment.fearGreedLabel,
-              newsScore: this.latestSentiment.newsScore,
-              btcDominance: this.latestMarketOverview?.btcDominance
-            }
-          );
+          const router2 = this.alert as NotificationRouter;
+          if (typeof router2.routeTemplate === 'function') {
+            await router2.routeTemplate(
+              'sentimentAlert',
+              alertTemplates.sentimentAlert(this.latestSentiment.fearGreedIndex, this.latestSentiment.fearGreedLabel),
+              'sentiment_loop',
+              { newsScore: this.latestSentiment.newsScore, btcDominance: this.latestMarketOverview?.btcDominance },
+            );
+          } else {
+            await this.alert.notify('Market Sentiment Alert',
+              `Fear & Greed Index: ${this.latestSentiment.fearGreedIndex} (${this.latestSentiment.fearGreedLabel})`,
+              { fearGreedIndex: this.latestSentiment.fearGreedIndex, fearGreedLabel: this.latestSentiment.fearGreedLabel },
+            );
+          }
         }
       }
 
@@ -846,11 +856,22 @@ export class TradingLoops {
           this.applyOrderToSnapshot(order.symbol, order.side, order.filledQuantity, order.avgFillPrice ?? ticker.last, order.totalFees ?? 0);
           this.trailingStopManager.closePosition(symbol);
           
-          await this.alert.notify('Trailing Stop Triggered', result.reason, {
-            orderId: order.orderId,
-            symbol,
-            mode: this.config.mode
-          });
+          const router3 = this.alert as NotificationRouter;
+          const exitPrice = order.avgFillPrice ?? ticker.last;
+          const entryPrice = this.snapshot.openPositions.find((p: Position) => p.symbol === symbol)?.avgEntryPrice ?? exitPrice;
+          const pnlPct = entryPrice > 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 : 0;
+          if (typeof router3.routeTemplate === 'function') {
+            await router3.routeTemplate(
+              'trailingStopTriggered',
+              alertTemplates.trailingStopTriggered(symbol, entryPrice, exitPrice, pnlPct),
+              'trailing_stop',
+              { orderId: order.orderId },
+            );
+          } else {
+            await this.alert.notify('Trailing Stop Triggered', result.reason, {
+              orderId: order.orderId, symbol, mode: this.config.mode,
+            });
+          }
         }
       } else {
         this.logger.warn('trailing stop blocked by risk engine', { symbol, reason: decision.reason });

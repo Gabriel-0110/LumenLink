@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   BarChart3,
   TrendingUp,
@@ -7,6 +7,7 @@ import {
   Target,
   Percent,
   ArrowDownRight,
+  RefreshCw,
 } from 'lucide-react';
 import {
   BarChart,
@@ -19,7 +20,10 @@ import {
   Cell,
 } from 'recharts';
 import { useDashboardStore } from '../../../store/dashboardStore';
-import { StatCard } from '../../common';
+import { StatCard, FilterBar } from '../../common';
+import type { Trade, DailySummary } from '../../../types/api';
+
+type Timeframe = 'today' | 'recent50' | '7d';
 
 function fmtUsd(v: number): string {
   const sign = v >= 0 ? '+' : '';
@@ -29,17 +33,84 @@ function fmtUsd(v: number): string {
   })}`;
 }
 
+interface WeeklyData {
+  days: DailySummary[];
+  aggregate: {
+    totalTrades: number;
+    totalPnlUsd: number;
+    totalFeesUsd: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    avgDailyPnl: number;
+  };
+}
+
 export function ExecutionPerformance() {
   const data = useDashboardStore((s) => s.data);
+  const [timeframe, setTimeframe] = useState<Timeframe>('today');
+  const [weeklyData, setWeeklyData] = useState<WeeklyData | null>(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
+
+  const loadWeekly = useCallback(async () => {
+    setWeeklyLoading(true);
+    try {
+      const res = await fetch('/api/reports/weekly');
+      if (res.ok) setWeeklyData(await res.json());
+    } catch { /* ignore */ }
+    setWeeklyLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (timeframe === '7d' && !weeklyData) loadWeekly();
+  }, [timeframe, weeklyData, loadWeekly]);
 
   const stats = useMemo(() => {
     if (!data) return null;
 
+    if (timeframe === '7d' && weeklyData) {
+      const agg = weeklyData.aggregate;
+      const symbolPnl: Record<string, number> = {};
+      // We don't have per-symbol breakdown from weekly, but we can compute from recent trades
+      for (const t of data.recentTrades.filter(t => t.action === 'exit' && t.realizedPnlUsd != null)) {
+        symbolPnl[t.symbol] = (symbolPnl[t.symbol] ?? 0) + (t.realizedPnlUsd ?? 0);
+      }
+      return {
+        label: 'Last 7 Days',
+        realizedPnl: agg.totalPnlUsd,
+        unrealizedPnl: data.unrealizedPnlUsd,
+        grossPnl: agg.totalPnlUsd + agg.totalFeesUsd,
+        netPnl: agg.totalPnlUsd,
+        totalFees: agg.totalFeesUsd,
+        totalTrades: agg.totalTrades,
+        winCount: agg.wins,
+        lossCount: agg.losses,
+        winRate: agg.winRate,
+        avgWin: agg.wins > 0 ? (agg.totalPnlUsd > 0 ? agg.totalPnlUsd / agg.wins : 0) : 0,
+        avgLoss: agg.losses > 0 ? Math.abs(agg.totalPnlUsd < 0 ? agg.totalPnlUsd / agg.losses : 0) : 0,
+        expectancy: agg.totalTrades > 0 ? agg.totalPnlUsd / agg.totalTrades : 0,
+        maxDrawdown: 0, // not available in weekly aggregate
+        symbolData: Object.entries(symbolPnl).map(([symbol, pnl]) => ({ symbol, pnl })),
+      };
+    }
+
     const today = data.today;
     const trades = data.recentTrades;
 
-    // Compute from trades
-    const exits = trades.filter((t) => t.action === 'exit' && t.realizedPnlUsd != null);
+    // Filter by timeframe
+    let filteredTrades: Trade[];
+    let label: string;
+
+    if (timeframe === 'today') {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      filteredTrades = trades.filter(t => new Date(t.timestamp).toISOString().slice(0, 10) === todayStr);
+      label = 'Today';
+    } else {
+      filteredTrades = trades;
+      label = `Last ${trades.length} Trades`;
+    }
+
+    const exits = filteredTrades.filter((t) => t.action === 'exit' && t.realizedPnlUsd != null);
     const wins = exits.filter((t) => (t.realizedPnlUsd ?? 0) > 0);
     const losses = exits.filter((t) => (t.realizedPnlUsd ?? 0) <= 0);
 
@@ -49,45 +120,39 @@ export function ExecutionPerformance() {
     const avgLoss = losses.length > 0 ? Math.abs(totalLossPnl) / losses.length : 0;
     const winRate = exits.length > 0 ? (wins.length / exits.length) * 100 : 0;
 
-    // Expectancy: (WinRate * AvgWin) - (LossRate * AvgLoss)
     const expectancy =
       exits.length > 0
         ? (wins.length / exits.length) * avgWin -
           (losses.length / exits.length) * avgLoss
         : 0;
 
-    const totalFees = trades.reduce((s, t) => s + t.commissionUsd, 0);
-    const grossPnl = data.realizedPnlUsd + totalFees;
+    const totalFees = filteredTrades.reduce((s, t) => s + t.commissionUsd, 0);
+    const realizedPnl = timeframe === 'today' ? (today?.netPnlUsd ?? 0) : data.realizedPnlUsd;
+    const grossPnl = realizedPnl + totalFees;
 
-    // P/L by symbol
     const pnlBySymbol: Record<string, number> = {};
     for (const t of exits) {
-      const sym = t.symbol;
-      pnlBySymbol[sym] = (pnlBySymbol[sym] ?? 0) + (t.realizedPnlUsd ?? 0);
+      pnlBySymbol[t.symbol] = (pnlBySymbol[t.symbol] ?? 0) + (t.realizedPnlUsd ?? 0);
     }
 
-    const symbolData = Object.entries(pnlBySymbol).map(([symbol, pnl]) => ({
-      symbol,
-      pnl,
-    }));
-
     return {
-      realizedPnl: data.realizedPnlUsd,
+      label,
+      realizedPnl,
       unrealizedPnl: data.unrealizedPnlUsd,
       grossPnl,
-      netPnl: data.realizedPnlUsd,
+      netPnl: realizedPnl,
       totalFees,
-      totalTrades: today?.totalTrades ?? exits.length,
+      totalTrades: timeframe === 'today' ? (today?.totalTrades ?? exits.length) : exits.length,
       winCount: wins.length,
       lossCount: losses.length,
       winRate,
       avgWin,
       avgLoss,
       expectancy,
-      maxDrawdown: today?.maxDrawdownUsd ?? 0,
-      symbolData,
+      maxDrawdown: timeframe === 'today' ? (today?.maxDrawdownUsd ?? 0) : 0,
+      symbolData: Object.entries(pnlBySymbol).map(([symbol, pnl]) => ({ symbol, pnl })),
     };
-  }, [data]);
+  }, [data, timeframe, weeklyData]);
 
   if (!data || !stats) {
     return (
@@ -97,12 +162,32 @@ export function ExecutionPerformance() {
     );
   }
 
+  const timeframeOptions = [
+    { label: 'Today', value: 'today' },
+    { label: 'Recent Trades', value: 'recent50' },
+    { label: '7 Day', value: '7d' },
+  ];
+
   return (
     <div className="flex flex-col gap-5">
-      <h2 className="text-base font-bold flex items-center gap-2">
-        <BarChart3 size={18} className="text-brand" />
-        Session Performance
-      </h2>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-base font-bold flex items-center gap-2">
+          <BarChart3 size={18} className="text-brand" />
+          Performance
+          <span className="text-xs font-normal text-muted ml-1">({stats.label})</span>
+        </h2>
+        <FilterBar
+          options={timeframeOptions}
+          selected={timeframe}
+          onChange={(v) => setTimeframe(v as Timeframe)}
+        />
+      </div>
+
+      {weeklyLoading && timeframe === '7d' && (
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <RefreshCw size={12} className="animate-spin" /> Loading weekly data...
+        </div>
+      )}
 
       {/* P/L Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -148,7 +233,7 @@ export function ExecutionPerformance() {
         <StatCard
           label="Max Drawdown"
           value={`$${stats.maxDrawdown.toFixed(2)}`}
-          sub="session"
+          sub={stats.label.toLowerCase()}
           accentColor="#ef4444"
           valueColor="#ef4444"
           icon={<ArrowDownRight size={16} />}

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { alertTemplates, AlertMultiplexer } from '../../src/alerts/alertTemplates.js';
-import { createMockAlert } from '../helpers.js';
+import { alertTemplates } from '../../src/alerts/alertTemplates.js';
 
 describe('alertTemplates', () => {
   it('formats orderFilled', () => {
@@ -43,25 +42,3 @@ describe('alertTemplates', () => {
   });
 });
 
-describe('AlertMultiplexer', () => {
-  it('sends to all services', async () => {
-    const svc1 = createMockAlert();
-    const svc2 = createMockAlert();
-    const mux = new AlertMultiplexer([svc1, svc2]);
-
-    await mux.notify('Test', 'Hello');
-    expect(svc1.calls).toHaveLength(1);
-    expect(svc2.calls).toHaveLength(1);
-  });
-
-  it('filters by severity', async () => {
-    const svc = createMockAlert();
-    const mux = new AlertMultiplexer([svc], 'warning');
-
-    await mux.sendTemplate(alertTemplates.orderFilled('BTC-USD', 'buy', 0.01, 50000, 'paper')); // info — filtered
-    expect(svc.calls).toHaveLength(0);
-
-    await mux.sendTemplate(alertTemplates.killSwitchTriggered('test')); // critical — passes
-    expect(svc.calls).toHaveLength(1);
-  });
-});

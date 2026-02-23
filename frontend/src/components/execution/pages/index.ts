@@ -8,3 +8,4 @@ export { ExecutionJournal } from './ExecutionJournal';
 export { ExecutionReconciliation } from './ExecutionReconciliation';
 export { ExecutionPerformance } from './ExecutionPerformance';
 export { ExecutionAlerts } from './ExecutionAlerts';
+export { NotificationPrefs } from './NotificationPrefs';

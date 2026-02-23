@@ -3,7 +3,6 @@ import {
   TrendingDown,
   DollarSign,
   Layers,
-  ClipboardList,
   Target,
   ShieldOff,
   ShieldCheck,
@@ -168,16 +167,37 @@ export function ExecutionOverview() {
         />
       </div>
 
-      {/* Active orders */}
+      {/* Balance breakdown */}
       <div>
         <div className="section-title">
-          <ClipboardList size={14} />
-          Active Orders
+          <DollarSign size={14} />
+          Balance Breakdown
         </div>
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold">{data.recentTrades.filter((t) => t.action === 'entry').length}</span>
-            <span className="text-sm text-muted">pending entries in recent trades</span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="bg-surface2 rounded-input p-3 border border-border">
+            <div className="text-[0.66rem] uppercase tracking-wider text-muted mb-1">Cash (USD)</div>
+            <div className="text-base font-bold">{fmtPrice(data.cash)}</div>
+          </div>
+          {data.positions.map((pos) => (
+            <div key={pos.symbol} className="bg-surface2 rounded-input p-3 border border-border">
+              <div className="text-[0.66rem] uppercase tracking-wider text-muted mb-1">
+                {pos.symbol.replace('-USD', '')}
+              </div>
+              <div className="text-base font-bold">{pos.quantity.toFixed(6)}</div>
+              <div className="text-xs text-muted mt-0.5">
+                ≈ {fmtPrice(pos.valueUsd)}
+                <span
+                  className="ml-2 font-semibold"
+                  style={{ color: pos.unrealizedPnlUsd >= 0 ? '#10b981' : '#ef4444' }}
+                >
+                  {pos.unrealizedPnlUsd >= 0 ? '+' : ''}{fmtPrice(pos.unrealizedPnlUsd)}
+                </span>
+              </div>
+            </div>
+          ))}
+          <div className="bg-surface2 rounded-input p-3 border border-brand/20">
+            <div className="text-[0.66rem] uppercase tracking-wider text-muted mb-1">Total Equity</div>
+            <div className="text-base font-bold text-brand">{fmtPrice(data.totalEquityUsd)}</div>
           </div>
         </div>
       </div>

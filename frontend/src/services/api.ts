@@ -152,4 +152,40 @@ export async function cancelAllOrders(): Promise<{ cancelled: number }> {
   return request('/api/orders/cancel-all', { method: 'POST' });
 }
 
+// ── Notification preferences ──────────────────────────────────────
+
+export type AlertSeverity = 'info' | 'warn' | 'critical';
+export type AlertChannel = 'console' | 'telegram' | 'discord' | 'dashboard';
+export type EventTypeOverride = 'always' | 'never' | 'default';
+export type AlertEventType =
+  | 'orderFilled' | 'orderRejected'
+  | 'killSwitchTriggered' | 'killSwitchReset'
+  | 'dailyLossHit' | 'circuitBreakerOpen' | 'volatilityHalt'
+  | 'eventLockout' | 'trailingStopTriggered' | 'cooldownActive'
+  | 'dailySummary' | 'sentimentAlert'
+  | 'systemStartup' | 'systemShutdown'
+  | 'strategySwitched' | 'sessionPaused' | 'sessionResumed'
+  | 'generic';
+
+export interface ChannelPrefs {
+  enabled: boolean;
+  minSeverity: AlertSeverity;
+  overrides: Partial<Record<AlertEventType, EventTypeOverride>>;
+}
+
+export interface NotificationPrefs {
+  channels: Record<AlertChannel, ChannelPrefs>;
+}
+
+export async function fetchNotificationPrefs(): Promise<NotificationPrefs> {
+  return request<NotificationPrefs>('/api/alerts/prefs');
+}
+
+export async function updateNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<NotificationPrefs> {
+  return request<NotificationPrefs>('/api/alerts/prefs', {
+    method: 'POST',
+    body: JSON.stringify(patch),
+  });
+}
+
 export { ApiError };

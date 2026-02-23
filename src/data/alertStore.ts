@@ -5,7 +5,9 @@
  * Alerts are also emitted via EventBus for real-time WebSocket delivery.
  */
 
-export type AlertLevel = 'critical' | 'warn' | 'info';
+import type { AlertSeverity } from '../alerts/types.js';
+
+export type AlertLevel = AlertSeverity;
 
 export interface AlertEntry {
   id: number;
@@ -13,6 +15,7 @@ export interface AlertEntry {
   title: string;
   message: string;
   source: string;
+  eventType?: string;
   timestamp: number;
 }
 

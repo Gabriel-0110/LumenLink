@@ -19,6 +19,9 @@ import type { HealthReport } from '../../../src/core/healthReport.js';
 import type { SignalLog } from '../../../src/data/signalLog.js';
 import type { AlertStore } from '../../../src/data/alertStore.js';
 import type { Strategy } from '../../../src/strategies/interface.js';
+import type { NotificationPrefsStore } from '../../../src/alerts/notificationPrefsStore.js';
+import type { NotificationRouter } from '../../../src/alerts/notificationRouter.js';
+import type { NotificationPrefs, AlertSeverity, EventTypeOverride } from '../../../src/alerts/types.js';
 import { createAuthMiddleware, type AuthConfig } from '../middleware/auth.js';
 import { createCorsMiddleware, type CorsConfig } from '../middleware/cors.js';
 import { eventBus } from '../services/eventBus.js';
@@ -41,6 +44,8 @@ export interface RouteContext {
   onConfigUpdate?: (patch: Record<string, unknown>) => { applied: Record<string, unknown>; rejected: string[] };
   signalLog?: SignalLog;
   alertStore?: AlertStore;
+  notificationPrefs?: NotificationPrefsStore;
+  notificationRouter?: NotificationRouter;
   /** Callback to pause the trading session. */
   onSessionPause?: () => void;
   /** Callback to resume the trading session. */
@@ -235,11 +240,10 @@ const routes: Route[] = [
         return json(res, { error: 'kill_switch_unavailable', message: 'Kill switch not initialized' }, 503);
       }
       ctx.killSwitch.reset();
-      eventBus.emit('alerts', {
-        level: 'info',
-        title: 'Kill Switch Reset',
-        message: 'Kill switch manually reset via API',
-        timestamp: Date.now(),
+      void ctx.notificationRouter?.route({
+        eventType: 'killSwitchReset', severity: 'info',
+        title: 'Kill Switch Reset', message: 'Kill switch manually reset via API',
+        source: 'api', timestamp: Date.now(),
       });
       ctx.logger.info('kill switch reset via API');
       json(res, { ok: true, state: ctx.killSwitch.getState() });
@@ -256,11 +260,10 @@ const routes: Route[] = [
       const body = await parseJsonBody<{ reason?: string }>(req);
       const reason = body?.reason ?? 'Manual trigger via API';
       ctx.killSwitch.trigger(reason);
-      eventBus.emit('alerts', {
-        level: 'critical',
-        title: 'Kill Switch Triggered',
-        message: reason,
-        timestamp: Date.now(),
+      void ctx.notificationRouter?.route({
+        eventType: 'killSwitchTriggered', severity: 'critical',
+        title: 'Kill Switch Triggered', message: reason,
+        source: 'api', timestamp: Date.now(),
       });
       json(res, { ok: true, state: ctx.killSwitch.getState() });
     },
@@ -385,11 +388,10 @@ const routes: Route[] = [
           return json(res, { error: 'switch_failed', message: `Failed to switch to ${name}` }, 500);
         }
         ctx.logger.info('strategy switched via API', { from: ctx.strategy.name, to: newStrategy.name });
-        eventBus.emit('alerts', {
-          level: 'info',
-          title: 'Strategy Switched',
-          message: `Switched from ${ctx.strategy.name} to ${newStrategy.name}`,
-          timestamp: Date.now(),
+        void ctx.notificationRouter?.route({
+          eventType: 'strategySwitched', severity: 'info',
+          title: 'Strategy Switched', message: `Switched from ${ctx.strategy.name} to ${newStrategy.name}`,
+          source: 'api', timestamp: Date.now(),
         });
         json(res, { ok: true, previous: ctx.strategy.name, active: newStrategy.name });
       } else {
@@ -586,11 +588,10 @@ const routes: Route[] = [
       }
       ctx.onSessionPause();
       ctx.logger.info('trading session paused via API');
-      eventBus.emit('alerts', {
-        level: 'warn',
-        title: 'Session Paused',
-        message: 'Trading paused via dashboard',
-        timestamp: Date.now(),
+      void ctx.notificationRouter?.route({
+        eventType: 'sessionPaused', severity: 'warn',
+        title: 'Session Paused', message: 'Trading paused via dashboard',
+        source: 'api', timestamp: Date.now(),
       });
       json(res, { ok: true, paused: true });
     },
@@ -606,11 +607,10 @@ const routes: Route[] = [
       }
       ctx.onSessionResume();
       ctx.logger.info('trading session resumed via API');
-      eventBus.emit('alerts', {
-        level: 'info',
-        title: 'Session Resumed',
-        message: 'Trading resumed via dashboard',
-        timestamp: Date.now(),
+      void ctx.notificationRouter?.route({
+        eventType: 'sessionResumed', severity: 'info',
+        title: 'Session Resumed', message: 'Trading resumed via dashboard',
+        source: 'api', timestamp: Date.now(),
       });
       json(res, { ok: true, paused: false });
     },
@@ -649,6 +649,58 @@ const routes: Route[] = [
       const count = await ctx.onCancelAll();
       ctx.logger.info('cancel all orders via API', { cancelled: count });
       json(res, { ok: true, cancelled: count });
+    },
+  },
+
+  // ── Notification preferences ──────────────────────────────────────────────
+
+  {
+    method: 'GET',
+    path: '/api/alerts/prefs',
+    handler: (_req, res, ctx) => {
+      if (!ctx.notificationPrefs) {
+        return json(res, { error: 'prefs_unavailable' }, 503);
+      }
+      json(res, ctx.notificationPrefs.get());
+    },
+  },
+
+  {
+    method: 'POST',
+    path: '/api/alerts/prefs',
+    handler: async (req, res, ctx) => {
+      if (!ctx.notificationPrefs) {
+        return json(res, { error: 'prefs_unavailable' }, 503);
+      }
+      const body = await parseJsonBody<Partial<NotificationPrefs>>(req);
+      if (!body) {
+        return json(res, { error: 'invalid_body', message: 'Expected JSON body with notification preferences' }, 400);
+      }
+
+      // Validate severity values
+      const validSeverities = new Set(['info', 'warn', 'critical']);
+      const validOverrides = new Set(['always', 'never', 'default']);
+      if (body.channels) {
+        for (const [ch, prefs] of Object.entries(body.channels)) {
+          if (!['console', 'telegram', 'discord', 'dashboard'].includes(ch)) {
+            return json(res, { error: 'invalid_channel', message: `Unknown channel: ${ch}` }, 400);
+          }
+          if (prefs.minSeverity && !validSeverities.has(prefs.minSeverity)) {
+            return json(res, { error: 'invalid_severity', message: `Invalid severity: ${prefs.minSeverity}` }, 400);
+          }
+          if (prefs.overrides) {
+            for (const [, v] of Object.entries(prefs.overrides)) {
+              if (v && !validOverrides.has(v)) {
+                return json(res, { error: 'invalid_override', message: `Invalid override value: ${v}` }, 400);
+              }
+            }
+          }
+        }
+      }
+
+      const merged = ctx.notificationPrefs.patch(body);
+      ctx.logger.info('notification preferences updated via API');
+      json(res, merged);
     },
   },
 ];

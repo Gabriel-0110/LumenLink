@@ -36,10 +36,15 @@ import { InventoryManager } from './execution/inventoryManager.js';
 import { FillReconciler } from './execution/fillReconciler.js';
 import { TradeGatekeeper } from './risk/tradeGatekeeper.js';
 import { HealthReport } from './core/healthReport.js';
+import { SignalLog } from './data/signalLog.js';
+import { AlertStore } from './data/alertStore.js';
+import { NotificationPrefsStore } from './alerts/notificationPrefsStore.js';
+import { NotificationRouter } from './alerts/notificationRouter.js';
 import type { CoinbaseAuthMaterial } from './exchanges/coinbase/auth.js';
 import type { Balance, Candle, Order, OrderRequest, Ticker } from './core/types.js';
 import { createRouter } from '../backend/src/api/routes.js';
 import { createWebSocketServer } from '../backend/src/websocket/server.js';
+import { eventBus } from '../backend/src/services/eventBus.js';
 
 class UnavailableExchangeAdapter implements ExchangeAdapter {
   async getTicker(_symbol: string): Promise<Ticker> {
@@ -73,6 +78,8 @@ const main = async (): Promise<void> => {
   // Paper shares candle store with live (market data is read-only), separate journal for trades
   const candleDbPath = './data/runtime.sqlite';
   const journal = config.nodeEnv === 'test' ? undefined : new TradeJournal(dbPath);
+  const signalLog = config.nodeEnv === 'test' ? undefined : new SignalLog(dbPath);
+  const alertStore = new AlertStore(500);
 
   const secrets = buildSecretsProvider(config);
   let telegramToken: string | undefined;
@@ -205,19 +212,22 @@ const main = async (): Promise<void> => {
   });
   const healthReport = new HealthReport(logger);
 
-  const alertServices = [new ConsoleAlertService()];
-  if (telegramToken && config.alerts.telegram.chatId) {
-    alertServices.push(new TelegramAlertService(telegramToken, config.alerts.telegram.chatId));
-  }
-  if (discordWebhook) {
-    alertServices.push(new DiscordAlertService(discordWebhook));
-  }
+  const consoleAlert = new ConsoleAlertService();
+  const telegramAlert = (telegramToken && config.alerts.telegram.chatId)
+    ? new TelegramAlertService(telegramToken, config.alerts.telegram.chatId)
+    : undefined;
+  const discordAlert = discordWebhook
+    ? new DiscordAlertService(discordWebhook)
+    : undefined;
 
-  const alertMux = {
-    async notify(title: string, message: string, context?: Record<string, unknown>): Promise<void> {
-      await Promise.all(alertServices.map((a) => a.notify(title, message, context)));
-    }
-  };
+  const notificationPrefs = new NotificationPrefsStore(dbPath);
+  const notificationRouter = new NotificationRouter(
+    notificationPrefs,
+    alertStore,
+    eventBus,
+    { console: consoleAlert, telegram: telegramAlert, discord: discordAlert },
+    logger,
+  );
 
   // Initialize sentiment and on-chain data services
   let sentimentService: SentimentService | undefined;
@@ -245,7 +255,7 @@ const main = async (): Promise<void> => {
     riskEngine,
     orderManager,
     reconciler,
-    alertMux,
+    notificationRouter,
     logger,
     sentimentService,
     onChainService,
@@ -313,6 +323,9 @@ const main = async (): Promise<void> => {
     }
   }
 
+  // Wire signal log for all modes (paper + live)
+  if (signalLog) loops.setSignalLog(signalLog);
+
   // Health report every hour
   scheduler.add('health-report', 3_600_000, async () => {
     await healthReport.printSummary(
@@ -356,6 +369,33 @@ const main = async (): Promise<void> => {
       healthReport,
       strategy,
       startedAt,
+      signalLog,
+      alertStore,
+      notificationPrefs,
+      notificationRouter,
+      onConfigUpdate: (patch) => {
+        const applied: Record<string, unknown> = {};
+        const rejected: string[] = [];
+        for (const [key, value] of Object.entries(patch)) {
+          const parts = key.split('.');
+          let target: any = config;
+          for (let i = 0; i < parts.length - 1; i++) target = target[parts[i]!];
+          if (target && parts[parts.length - 1]! in target) {
+            target[parts[parts.length - 1]!] = value;
+            applied[key] = value;
+          } else {
+            rejected.push(key);
+          }
+        }
+        return { applied, rejected };
+      },
+      onStrategySwitch: (name) => {
+        try {
+          const newStrat = createStrategy(name);
+          (config as any).strategy = name;
+          return newStrat;
+        } catch { return null; }
+      },
     },
     auth: { apiKey: process.env['LUMENLINK_API_KEY'] },
   });

@@ -16,6 +16,7 @@ import {
   ExecutionReconciliation,
   ExecutionPerformance,
   ExecutionAlerts,
+  NotificationPrefs,
 } from './components/execution/pages';
 import { useDashboardStore } from './store/dashboardStore';
 
@@ -94,6 +95,7 @@ export default function App() {
                   <Route path="reconciliation" element={<ExecutionReconciliation />} />
                   <Route path="performance" element={<ExecutionPerformance />} />
                   <Route path="alerts" element={<ExecutionAlerts />} />
+                  <Route path="notifications" element={<NotificationPrefs />} />
                 </Route>
 
                 {/* Redirect old routes */}

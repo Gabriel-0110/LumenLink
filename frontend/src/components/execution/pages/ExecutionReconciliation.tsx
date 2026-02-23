@@ -92,11 +92,13 @@ export function ExecutionReconciliation() {
           )}
           <div>
             <div className="text-sm font-bold">
-              {hasMismatches ? 'Mismatches Detected' : 'In Sync'}
+              {hasMismatches ? 'Mismatches Detected (Cumulative)' : 'In Sync'}
             </div>
             <div className="text-xs text-muted">
               {health
-                ? `Startup sync: ${health.startupSyncStatus}`
+                ? hasMismatches
+                  ? `Session totals: ${health.orphanFills} orphan fill(s), ${health.feeMismatches} fee mismatch(es), ${health.qtyMismatches} qty mismatch(es). These are cumulative since boot — startup sync: ${health.startupSyncStatus}`
+                  : `Startup sync: ${health.startupSyncStatus}. No mismatches since boot.`
                 : loading
                   ? 'Loading health data...'
                   : 'Health endpoint unavailable'}

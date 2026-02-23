@@ -127,11 +127,15 @@ export class OrderManager {
       // Cap to deployable fraction of available cash so we always keep reserves
       if (availableCashUsd !== undefined && availableCashUsd >= 0) {
         const deployPct = this.config.risk.deployPercent ?? 0.5;
+        // Always keep a minimum cash reserve to avoid INSUFFICIENT_FUND errors
+        const minCashReserveUsd = 25;
+        const cashAfterReserve = Math.max(0, availableCashUsd - minCashReserveUsd);
         // Reserve 0.5% for exchange fees, then apply deploy fraction
-        const usable = availableCashUsd * 0.995 * deployPct;
-        if (usable < 1) {
-          this.logger.warn('BUY skipped — available cash below $1', {
+        const usable = cashAfterReserve * 0.995 * deployPct;
+        if (usable < 10) {
+          this.logger.warn('BUY skipped — deployable cash below $10 (reserve kept)', {
             symbol, availableCashUsd: availableCashUsd.toFixed(2),
+            reserveUsd: minCashReserveUsd,
           });
           return undefined;
         }

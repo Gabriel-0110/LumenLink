@@ -107,7 +107,21 @@ export class RiskEngine {
       const existingNotional = existingPos
         ? Math.abs(existingPos.quantity * (ticker.last || existingPos.marketPrice))
         : 0;
-      const remainingCapacity = this.config.risk.maxPositionUsd - existingNotional;
+
+      // Max equity deployment ratio: never deploy more than deployPercent of total equity
+      const totalPositionNotional = snapshot.openPositions.reduce(
+        (sum, p) => sum + Math.abs(p.quantity * (ticker.last || p.marketPrice)), 0
+      );
+      const totalEquity = snapshot.cashUsd + totalPositionNotional;
+      const maxDeployPct = this.config.risk.deployPercent ?? 0.5;
+      const maxDeployUsd = totalEquity * maxDeployPct;
+      const equityCapacity = maxDeployUsd - totalPositionNotional;
+
+      // Use the tighter of: position limit remaining OR equity deployment remaining
+      const remainingCapacity = Math.min(
+        this.config.risk.maxPositionUsd - existingNotional,
+        Math.max(0, equityCapacity)
+      );
       if (remainingCapacity <= 0) {
         return { allowed: false, reason: 'Max position exceeded', blockedBy: 'max_position_usd' };
       }

@@ -28,6 +28,12 @@ export interface StrategyEngineConfig {
   intervalMs: number;        // candle interval in ms
   feeRateBps?: number;
   initialStage?: 'shadow' | 'paper' | 'small_live' | 'full_live';
+  // Risk sizing — forwarded to TradeConstructionEngine
+  maxPositionUsd?: number;
+  basePositionUsd?: number;
+  maxExposureUsd?: number;
+  perSymbolCapUsd?: number;
+  maxRiskPerTradePct?: number;
 }
 
 export class StrategyEngine {
@@ -53,7 +59,14 @@ export class StrategyEngine {
     });
     this.ensemble = new AlphaEnsemble();
     this.edgeScorer = new EdgeScorer({ feeRateBps: feeRate });
-    this.construction = new TradeConstructionEngine({ feeRateBps: feeRate });
+    this.construction = new TradeConstructionEngine({
+      feeRateBps: feeRate,
+      ...(config.maxPositionUsd != null && { maxPositionUsd: config.maxPositionUsd }),
+      ...(config.basePositionUsd != null && { basePositionUsd: config.basePositionUsd }),
+      ...(config.maxExposureUsd != null && { maxExposureUsd: config.maxExposureUsd }),
+      ...(config.perSymbolCapUsd != null && { perSymbolCapUsd: config.perSymbolCapUsd }),
+      ...(config.maxRiskPerTradePct != null && { maxRiskPerTradePct: config.maxRiskPerTradePct }),
+    });
     this.riskOverlay = new RiskOverlay();
     this.explainer = new DecisionExplainer();
     this.governance = new StrategyGovernance(

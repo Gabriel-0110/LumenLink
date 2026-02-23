@@ -308,6 +308,10 @@ const main = async (): Promise<void> => {
     intervalMs: config.strategyIntervalMs,
     feeRateBps: config.gatekeeper.feeRateBps,
     initialStage: config.strategyStage as 'shadow' | 'paper' | 'small_live' | 'full_live',
+    maxPositionUsd: config.risk.maxPositionUsd,
+    maxExposureUsd: config.risk.maxPositionUsd,
+    perSymbolCapUsd: config.risk.maxPositionUsd,
+    basePositionUsd: Math.min(500, config.risk.maxPositionUsd),
   });
   loops.setStrategyEngine(strategyEngine);
   logger.info('strategy engine initialized', {

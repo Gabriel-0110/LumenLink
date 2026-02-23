@@ -53,6 +53,17 @@ describe('exceedsMaxPositionUsd', () => {
     const snapshot = makeSnapshot({
       openPositions: [makePosition({ symbol: 'BTC-USD', quantity: 0.004, marketPrice: 50000 })], // $200
     });
-    expect(exceedsMaxPositionUsd(snapshot, 'BTC-USD', 250, 50000, 100)).toBe(true); // 200 + 100 >= 250
+    expect(exceedsMaxPositionUsd(snapshot, 'BTC-USD', 250, 50000, 100)).toBe(true); // 200 + 100 = 300 > 250
+  });
+
+  it('allows position exactly at the limit', () => {
+    const snapshot = makeSnapshot({
+      openPositions: [makePosition({ symbol: 'BTC-USD', quantity: 0.003, marketPrice: 50000 })], // $150
+    });
+    expect(exceedsMaxPositionUsd(snapshot, 'BTC-USD', 250, 50000, 100)).toBe(false); // 150 + 100 = 250 exactly
+  });
+
+  it('allows new order exactly at the limit with no position', () => {
+    expect(exceedsMaxPositionUsd(makeSnapshot(), 'BTC-USD', 250, 50000, 250)).toBe(false);
   });
 });

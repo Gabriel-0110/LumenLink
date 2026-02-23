@@ -99,8 +99,19 @@ export class RiskEngine {
 
     // ── 8. Max position size (BUY only — SELL is never a size violation) ───────
     // Compute ATR-based size when candles are available, else fall back to convex confidence scaling.
+    // Then cap to remaining capacity so existing exposure + new order stays within the limit.
     let positionSizeUsd: number | undefined;
     if (signal.action === 'BUY') {
+      // Calculate remaining capacity under the position limit
+      const existingPos = snapshot.openPositions.find(p => p.symbol === symbol);
+      const existingNotional = existingPos
+        ? Math.abs(existingPos.quantity * (ticker.last || existingPos.marketPrice))
+        : 0;
+      const remainingCapacity = this.config.risk.maxPositionUsd - existingNotional;
+      if (remainingCapacity <= 0) {
+        return { allowed: false, reason: 'Max position exceeded', blockedBy: 'max_position_usd' };
+      }
+
       if (candles && candles.length >= 30) {
         const atrValues = ATR.calculate({
           high: candles.map(c => c.high),
@@ -117,13 +128,13 @@ export class RiskEngine {
             ticker.last,
             1.5,           // 1.5x ATR stop distance
           );
-          positionSizeUsd = Math.min(positionUsd, this.config.risk.maxPositionUsd);
+          positionSizeUsd = Math.min(positionUsd, remainingCapacity);
         }
       }
-      const incomingOrderUsd = positionSizeUsd ?? computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd);
-      if (exceedsMaxPositionUsd(snapshot, symbol, this.config.risk.maxPositionUsd, ticker.last, incomingOrderUsd)) {
-        return { allowed: false, reason: 'Max position exceeded', blockedBy: 'max_position_usd' };
-      }
+      const incomingOrderUsd = positionSizeUsd ?? Math.min(
+        computePositionUsd(signal.confidence, this.config.risk.maxPositionUsd),
+        remainingCapacity
+      );
       if (!positionSizeUsd) positionSizeUsd = incomingOrderUsd;
     }
 

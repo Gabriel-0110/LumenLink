@@ -289,6 +289,44 @@ describe('RiskEngine', () => {
     expect(result.blockedBy).toBe('event_lockout');
   });
 
+  // ── Remaining capacity: position sizing caps to available room ──
+
+  it('blocks BUY when existing position fully uses the limit', () => {
+    const engine = new RiskEngine(makeConfig({
+      risk: { maxDailyLossUsd: 150, maxPositionUsd: 250, maxOpenPositions: 2, cooldownMinutes: 15 },
+    }));
+    const result = engine.evaluate({
+      signal: buySignal,
+      symbol: 'BTC-USD',
+      snapshot: makeSnapshot({
+        openPositions: [makePosition({ symbol: 'BTC-USD', quantity: 0.005, marketPrice: 50000 })], // $250
+      }),
+      ticker: makeTicker({ last: 50000 }),
+      nowMs: Date.now(),
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.blockedBy).toBe('max_position_usd');
+  });
+
+  it('caps BUY positionSizeUsd to remaining capacity under the limit', () => {
+    const engine = new RiskEngine(makeConfig({
+      risk: { maxDailyLossUsd: 150, maxPositionUsd: 500, maxOpenPositions: 2, cooldownMinutes: 15 },
+    }));
+    // Existing position worth $300 (0.006 BTC @ $50000) → remaining capacity = $200
+    const result = engine.evaluate({
+      signal: { action: 'BUY', confidence: 0.95, reason: 'test' } as Signal,
+      symbol: 'BTC-USD',
+      snapshot: makeSnapshot({
+        openPositions: [makePosition({ symbol: 'BTC-USD', quantity: 0.006, marketPrice: 50000 })],
+      }),
+      ticker: makeTicker({ last: 50000 }),
+      nowMs: Date.now(),
+    });
+    expect(result.allowed).toBe(true);
+    // positionSizeUsd should be capped to remaining capacity ($200), not full confidence-scaled value ($463)
+    expect(result.positionSizeUsd).toBeLessThanOrEqual(200);
+  });
+
   it('allows trading outside event lockout window', () => {
     const engine = new RiskEngine(makeConfig());
     const now = Date.now();
